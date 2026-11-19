@@ -1,0 +1,28 @@
+# conda env create -f environment.yml && conda activate refmasker
+name: refmasker
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python>=3.10
+  - biopython>=1.79
+  - matplotlib-base>=3.6
+  - pip
+  # repeats
+  - mummer4
+  # insertion sequences
+  - isescan
+  # prophages (geNomad also needs its database: `refmasker download-db DIR`)
+  - genomad
+  - phispy
+  # rRNA operons
+  - barrnap
+  # low complexity (dustmasker)
+  - blast
+  # CRISPR arrays
+  - minced
+  # development
+  - pytest
+  - ruff
+  - pip:
+      - -e .
