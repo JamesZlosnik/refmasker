@@ -153,7 +153,8 @@ def write_pdf(data, path: Path, figures, labels: dict[str, str]) -> None:
 
         details = [
             ("Run details", {"size": 12, "weight": "bold", "after": 0.008}),
-            (f"Reference: {data.reference} (md5 {data.reference_md5})", {"size": 8.5}),
+            (f"Reference: {data.reference}", {"size": 8.5}),
+            (f"md5 {data.reference_md5}  sha256 {data.reference_sha256}", {"size": 7.5}),
             (f"Annotation: {data.annotation or 'none'}", {"size": 8.5}),
             (f"Plasmid records: {', '.join(data.plasmids) or 'none'}", {"size": 8.5}),
             (f"Command: {data.command}", {"size": 8.5}),

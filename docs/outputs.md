@@ -74,10 +74,16 @@ six records (draft assemblies) are drawn with contigs placed end to end.
 
 ## run_info.json
 
-Machine-readable run record: refmasker version, command, reference path and MD5, records and their
-lengths, plasmid records, parameters, tool versions, total bp and % masked, warnings.
+Machine-readable run record: refmasker version, command, reference path with MD5 and SHA-256,
+records (ID, length and FASTA header description), plasmid records, parameters, tool versions
+(and the geNomad database version when prophages are called), total bp and % masked, warnings.
+
+With `--redact`, paths are reduced to file names, header descriptions are left out and
+`"redacted": true` is recorded. Record IDs are always kept: if your FASTA IDs are themselves
+sample identifiers, rename them before running.
 
 ## refmasker.log
 
-The full log, including every external command. With `--keep-work`, each tool's stderr is in
+The full log, including every external command, with full paths even under `--redact`: don't
+share it if paths are sensitive. With `--keep-work`, each tool's stderr is in
 `work/<tool>/<tool>.log` next to its raw output.

@@ -151,7 +151,18 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument(
         "--keep-work", action="store_true", help="keep intermediate tool outputs in OUTDIR/work"
     )
-    g.add_argument("--force", action="store_true", help="overwrite a non-empty output folder")
+    g.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite a previous refmasker output folder (refuses folders refmasker did not create)",
+    )
+    g.add_argument(
+        "--redact",
+        action="store_true",
+        help="for sharing: reports (HTML, PDF, run_info.json) show input file names instead of "
+        "full paths and omit FASTA header descriptions. Record IDs are kept (mask.bed needs "
+        "them) and refmasker.log keeps full paths",
+    )
     g.add_argument("-q", "--quiet", action="store_true", help="only print warnings and errors")
 
     c = sub.add_parser(
@@ -239,7 +250,7 @@ def cmd_download_db(args) -> int:
 def cmd_check(_args) -> int:
     from refmasker import external
     from refmasker.detectors import categories
-    from refmasker.detectors.prophages import genomad_db
+    from refmasker.detectors.prophages import genomad_db, genomad_db_version
 
     print(f"refmasker {__version__}")
     missing_default = []
@@ -251,7 +262,10 @@ def cmd_check(_args) -> int:
             if v == "not found" and c.default and t != "PhiSpy.py":
                 missing_default.append(t)
     db = genomad_db(None)
-    print(f"  geNomad database: {db or 'not set (use --genomad-db or REFMASKER_GENOMAD_DB)'}")
+    if db is None:
+        print("  geNomad database: not set (use --genomad-db or REFMASKER_GENOMAD_DB)")
+    else:
+        print(f"  geNomad database: {db} (version {genomad_db_version(db)})")
     if missing_default:
         print(f"Missing tools for the default categories: {', '.join(missing_default)}")
         return 1

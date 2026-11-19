@@ -10,7 +10,7 @@ import shutil
 import sys
 import time
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,7 @@ from refmasker import __version__, external
 from refmasker.annotation import FeatureIndex, detect_format, load_annotation
 from refmasker.detectors import Context, Result, categories
 from refmasker.detectors.plasmids import plasmid_ids
+from refmasker.detectors.prophages import genomad_db, genomad_db_version
 from refmasker.detectors.repeats import SENSITIVITY_IDENTITIES, SENSITIVITY_LENGTHS
 from refmasker.regions import (
     MergedRegion,
@@ -29,7 +30,7 @@ from refmasker.regions import (
     write_mask_bed,
 )
 from refmasker.resources import limit_library_threads, resolve_threads
-from refmasker.seqio import Record, md5sum, read_fasta, write_fasta
+from refmasker.seqio import Record, checksums, read_fasta, write_fasta
 from refmasker.summary import (
     SensitivityRow,
     SummaryRow,
@@ -49,6 +50,7 @@ class RunData:
 
     reference: Path
     reference_md5: str
+    reference_sha256: str
     records: list[Record]
     categories: list[str]
     regions: list[Region]
@@ -61,6 +63,7 @@ class RunData:
     notes: dict[str, list[str]] = field(default_factory=dict)
     plasmids: list[str] = field(default_factory=list)
     annotation: Path | None = None
+    redacted: bool = False
     command: str = ""
     started: str = ""
     runtime_s: float = 0.0
@@ -102,10 +105,22 @@ def resolve_categories(
     return sorted(chosen, key=order.index)
 
 
+# Files a previous `refmasker run` leaves behind. --force only clears folders that have one,
+# so pointing -o at an unrelated folder (e.g. a Nextflow project, whose work/ we would delete)
+# fails instead of destroying data.
+RUN_MARKERS = ("run_info.json", "refmasker.log")
+
+
 def prepare_outdir(outdir: Path, force: bool) -> None:
     if outdir.exists() and any(outdir.iterdir()):
         if not force:
             raise FileExistsError(f"Output folder {outdir} exists and is not empty (use --force)")
+        if not any((outdir / m).is_file() for m in RUN_MARKERS):
+            raise FileExistsError(
+                f"Output folder {outdir} is not empty and does not look like a refmasker output "
+                f"folder (no {' or '.join(RUN_MARKERS)}), so --force will not overwrite it. "
+                "Choose a new or empty folder."
+            )
         for name in ("work", "figures"):
             shutil.rmtree(outdir / name, ignore_errors=True)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -116,6 +131,34 @@ def add_file_logging(outdir: Path) -> logging.Handler:
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     logging.getLogger().addHandler(handler)
     return handler
+
+
+def input_paths(opts) -> list[str]:
+    """Every path the user gave on the command line, as typed."""
+    paths = [opts.reference, opts.outdir, opts.annotation, opts.genomad_db]
+    paths += opts.extra_bed or []
+    return [str(p) for p in paths if p]
+
+
+def redactor(paths: list[str]):
+    """Return a function that replaces each given path (as typed or absolute) by its file name.
+
+    Used by --redact so shared reports do not reveal folder layouts, usernames or project
+    names. Longest paths are replaced first so a folder never clobbers a file inside it.
+    """
+    mapping: dict[str, str] = {}
+    for p in paths:
+        name = Path(p).name or p
+        mapping[p] = name
+        mapping[str(Path(p).resolve())] = name
+    keys = sorted((k for k, v in mapping.items() if k != v), key=len, reverse=True)
+
+    def redact(text: str) -> str:
+        for k in keys:
+            text = text.replace(k, mapping[k])
+        return text
+
+    return redact
 
 
 def annotate_genes(regions: list[Region], index: FeatureIndex | None) -> list[Region]:
@@ -133,7 +176,7 @@ def annotate_genes(regions: list[Region], index: FeatureIndex | None) -> list[Re
 
 def run(opts) -> RunData:
     t0 = time.time()
-    started = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    started = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     outdir = Path(opts.outdir)
     prepare_outdir(outdir, opts.force)
     handler = add_file_logging(outdir)
@@ -262,6 +305,8 @@ def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
     versions = {"refmasker": __version__, "python": platform.python_version()}
     for tool in needed:
         versions[tool] = external.tool_version(tool)
+    if "prophage" in cats and opts.phage_tool == "genomad":
+        versions["genomad_db"] = genomad_db_version(genomad_db(opts.genomad_db))
 
     params = {
         "categories": cats,
@@ -277,9 +322,19 @@ def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
         "threads": threads,
     }
 
+    sums = checksums(reference)
+    if opts.redact:
+        # Reports only: refmasker.log keeps full paths for debugging.
+        redact = redactor(input_paths(opts))
+        command = redact(command)
+        warnings = [redact(w) for w in warnings]
+        notes = {k: [redact(n) for n in v] for k, v in notes.items()}
+        log.info("--redact: reports show file names only and omit FASTA header descriptions")
+
     data = RunData(
-        reference=reference,
-        reference_md5=md5sum(reference),
+        reference=Path(reference.name) if opts.redact else reference,
+        reference_md5=sums["md5"],
+        reference_sha256=sums["sha256"],
         records=records,
         categories=cats,
         regions=regions,
@@ -291,7 +346,8 @@ def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
         warnings=warnings,
         notes=notes,
         plasmids=plasmids,
-        annotation=annotation,
+        annotation=Path(annotation.name) if (opts.redact and annotation) else annotation,
+        redacted=opts.redact,
         command=command,
         started=started,
     )
@@ -329,9 +385,13 @@ def write_run_info(data: RunData, path: Path) -> None:
         "runtime_s": round(data.runtime_s, 1),
         "reference": str(data.reference),
         "reference_md5": data.reference_md5,
+        "reference_sha256": data.reference_sha256,
         "annotation": str(data.annotation) if data.annotation else None,
+        "redacted": data.redacted,
         "records": [
-            {"id": r.id, "length": r.length, "description": r.description} for r in data.records
+            {"id": r.id, "length": r.length}
+            | ({} if data.redacted else {"description": r.description})
+            for r in data.records
         ],
         "plasmids": data.plasmids,
         "params": data.params,

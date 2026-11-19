@@ -76,9 +76,11 @@ def write_fasta(path: str | Path, records: list[Record], width: int = 80) -> Non
                 fh.write(r.seq[i : i + width] + "\n")
 
 
-def md5sum(path: str | Path) -> str:
-    h = hashlib.md5()
+def checksums(path: str | Path) -> dict[str, str]:
+    """md5 (to match NCBI's md5checksums.txt) and sha256 of a file, read once."""
+    md5, sha256 = hashlib.md5(), hashlib.sha256()
     with open(path, "rb") as fh:
         for block in iter(lambda: fh.read(1 << 20), b""):
-            h.update(block)
-    return h.hexdigest()
+            md5.update(block)
+            sha256.update(block)
+    return {"md5": md5.hexdigest(), "sha256": sha256.hexdigest()}

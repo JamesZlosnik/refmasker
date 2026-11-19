@@ -25,6 +25,21 @@ def genomad_db(cli_value: str | None) -> Path | None:
     return None
 
 
+def genomad_db_version(db: Path | None) -> str:
+    """Version recorded in the geNomad database folder's version.txt, for provenance.
+
+    refmasker cannot checksum the download itself (geNomad fetches it), so recording the
+    version is how a run says which database it used.
+    """
+    if db is None:
+        return "not set"
+    vfile = db / "version.txt"
+    if not vfile.is_file():
+        return "unknown (no version.txt)"
+    lines = vfile.read_text().split()
+    return lines[0] if lines else "unknown (empty version.txt)"
+
+
 def parse_genomad_virus_summary(path: Path, lengths: dict[str, int]) -> list[Region]:
     """Parse geNomad's *_virus_summary.tsv.
 

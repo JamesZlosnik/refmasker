@@ -39,10 +39,33 @@ refmasker is a Python package; the detection tools come from bioconda.
 ```bash
 git clone https://github.com/<you>/refmasker.git
 cd refmasker
-conda env create -f environment.yml      # or mamba
+conda env create -f environment.yml      # or mamba: installs the pinned tools, not refmasker
 conda activate refmasker
+pip install --no-deps .                  # installs a copy of refmasker into the environment
 refmasker check                          # lists each tool and its version
 ```
+
+`pip install --no-deps .` copies refmasker into the environment, so the environment keeps working if
+the checkout is moved, edited or deleted, and `--no-deps` stops pip pulling anything from PyPI (conda
+has already installed the dependencies). Avoid editable installs (`pip install -e`) for shared
+environments: anyone who can edit the checkout would change the code every user of the environment
+runs.
+
+### Shared HPC systems
+
+- refmasker uses 1 thread unless told otherwise, or the allocation from SLURM (`SLURM_CPUS_PER_TASK`)
+  or SGE (`NSLOTS`). Run it inside a job, not on a login node.
+- Output files get your umask's permissions; on many clusters that makes them readable by other
+  users. For sensitive references, run with a private umask:
+
+  ```bash
+  umask 077      # only you; or umask 027 to share with your group
+  refmasker run ref.fna -o ref_mask
+  ```
+
+- To share reports without revealing your folder layout or FASTA header text, add `--redact`.
+- If your home folder is read-only or over quota on compute nodes, matplotlib may warn that it cannot
+  write its cache; set `export MPLCONFIGDIR="$TMPDIR/mpl"` in the job script.
 
 The default prophage caller, geNomad, needs its database (about 1.4 GB, downloaded once):
 
@@ -141,7 +164,8 @@ methods paragraph with references in [docs/methods.md](docs/methods.md).
 ## Development
 
 ```bash
-pip install -e ".[dev]"
+conda activate refmasker                 # environment.yml includes pytest and ruff
+pip install --no-deps -e .               # editable for development, in your own environment only
 pytest -m "not slow"       # fast tests, no external tools needed (what CI runs)
 pytest -m slow             # runs the real tools; needs the conda env
 ruff check src tests && ruff format --check src tests

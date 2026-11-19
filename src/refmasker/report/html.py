@@ -221,7 +221,9 @@ def write_html(data, path: Path, svgs: list[str], labels: dict[str, str]) -> Non
 
     add("<h2>Run details</h2><dl>")
     details = [
-        ("Reference", f"{data.reference} (md5 {data.reference_md5})"),
+        ("Reference", str(data.reference)),
+        ("Reference md5", data.reference_md5),
+        ("Reference sha256", data.reference_sha256),
         ("Annotation", str(data.annotation) if data.annotation else "none"),
         ("Records", "; ".join(f"{r.id} ({r.length:,} bp)" for r in data.records)),
         ("Plasmid records", ", ".join(data.plasmids) or "none"),

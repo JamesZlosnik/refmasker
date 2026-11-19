@@ -12,6 +12,8 @@ set -euo pipefail
 out=${1:-test_data}
 mkdir -p "$out"
 eutils="https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+# Pinned so the benchmark mask cannot change under us.
+snippy_commit=feebb229c5e448af65167fbad9e454e2366c47b8  # tseemann/snippy master, 2026-11-19
 
 fetch() {  # fetch NAME ACC [ACC...]  -> NAME.fna, NAME.gff
     local name=$1; shift
@@ -31,7 +33,7 @@ fetch H37Rv NC_000962.3
 fetch USA300_FPR3757 NC_007793.1 NC_007790.1 NC_007791.1 NC_007792.1
 fetch PAO1 NC_002516.2
 
-curl -fsSL https://raw.githubusercontent.com/tseemann/snippy/master/etc/Mtb_NC_000962.3_mask.bed \
+curl -fsSL "https://raw.githubusercontent.com/tseemann/snippy/${snippy_commit}/etc/Mtb_NC_000962.3_mask.bed" \
     > "$out/snippy_Mtb_NC_000962.3_mask.bed"
 
 grep -c '>' "$out"/*.fna

@@ -67,6 +67,57 @@ def test_run_refuses_nonempty_outdir(tmp_path, genome):
     assert main(["run", str(genome), "-o", str(out), "--categories", "plasmid"]) == 2
 
 
+def test_force_refuses_foreign_folder(tmp_path, genome):
+    """--force must not clear a folder refmasker did not create (e.g. a Nextflow work/)."""
+    out = tmp_path / "project"
+    (out / "work").mkdir(parents=True)
+    (out / "work" / "keep.txt").write_text("x")
+    rc = main(["run", str(genome), "-o", str(out), "--categories", "plasmid", "--force"])
+    assert rc == 2
+    assert (out / "work" / "keep.txt").exists()
+
+
+def test_force_reruns_into_previous_output(tmp_path, genome):
+    out = tmp_path / "out"
+    args = ["run", str(genome), "-o", str(out), "--categories", "plasmid", "--formats", "none"]
+    assert main(args) == 0
+    assert main(args + ["--force"]) == 0
+
+
+def test_redact_hides_paths_and_descriptions(tmp_path, genome):
+    bed = tmp_path / "extra.bed"
+    bed.write_text("chr1\t100\t99999\n")  # runs past the end, so a note names the file
+    out = tmp_path / "out"
+    rc = main(
+        ["run", str(genome), "-o", str(out), "--categories", "plasmid", "--extra-bed", str(bed)]
+        + ["--formats", "html", "--redact"]
+    )
+    assert rc == 0
+    folder = str(tmp_path)
+    info_text = (out / "run_info.json").read_text()
+    info = json.loads(info_text)
+    assert info["redacted"] is True
+    assert info["reference"] == "ref.fna"
+    assert all("description" not in r for r in info["records"])
+    assert "Test organism" not in info_text
+    html = (out / "report.html").read_text()
+    for text in (info_text, html):
+        assert folder not in text
+    assert "extra.bed" in html  # the clipping note survives, with the file name only
+    assert folder in (out / "refmasker.log").read_text()
+
+
+def test_unredacted_keeps_descriptions(tmp_path, genome):
+    out = tmp_path / "out"
+    assert (
+        main(["run", str(genome), "-o", str(out), "--categories", "plasmid", "--formats", "none"])
+        == 0
+    )
+    info = json.loads((out / "run_info.json").read_text())
+    assert info["redacted"] is False
+    assert info["records"][0]["description"] == "Test organism chromosome"
+
+
 def test_run_reports_missing_tools(tmp_path, genome, monkeypatch):
     monkeypatch.setenv("PATH", str(tmp_path))
     rc = main(["run", str(genome), "-o", str(tmp_path / "o"), "--categories", "repeats"])

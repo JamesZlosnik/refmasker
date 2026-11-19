@@ -4,7 +4,11 @@ from refmasker.detectors.crispr import parse_minced_gff
 from refmasker.detectors.insertion_sequences import parse_isescan_tsv
 from refmasker.detectors.lowcomplexity import find_homopolymers, parse_dust_intervals
 from refmasker.detectors.plasmids import plasmid_ids
-from refmasker.detectors.prophages import parse_genomad_virus_summary, parse_phispy_coordinates
+from refmasker.detectors.prophages import (
+    genomad_db_version,
+    parse_genomad_virus_summary,
+    parse_phispy_coordinates,
+)
 from refmasker.detectors.repeats import hits_to_regions, parse_show_coords
 from refmasker.detectors.rrna import group_operons, parse_barrnap_gff
 from refmasker.seqio import Record
@@ -82,6 +86,13 @@ def test_genomad_proviruses_and_whole_sequences(tmp_path):
     rs = parse_genomad_virus_summary(p, {"chr1": 100000, "pA": 5000})
     assert [(r.chrom, r.start, r.end) for r in rs] == [("chr1", 1000, 41000), ("pA", 0, 5000)]
     assert "Caudoviricetes" in rs[0].name
+
+
+def test_genomad_db_version(tmp_path):
+    assert genomad_db_version(None) == "not set"
+    assert genomad_db_version(tmp_path).startswith("unknown")
+    (tmp_path / "version.txt").write_text("1.9\n")
+    assert genomad_db_version(tmp_path) == "1.9"
 
 
 def test_phispy(tmp_path):

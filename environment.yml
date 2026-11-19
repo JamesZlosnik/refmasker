@@ -1,28 +1,34 @@
-# conda env create -f environment.yml && conda activate refmasker
+# Dependencies only: this file does not install refmasker itself. See README "Install".
+#
+#   conda env create -f environment.yml      # or mamba
+#   conda activate refmasker
+#   pip install --no-deps .                  # from a refmasker checkout or release
+#
+# Versions are pinned for reproducibility. They were checked to solve together on linux-64
+# (glibc 2.28, as on RHEL/Rocky 8) with strict channel priority on 2026-11-19.
+# To update: change a pin, re-solve, run `pytest` and `pytest -m slow`, note it in CHANGELOG.
 name: refmasker
 channels:
   - conda-forge
   - bioconda
 dependencies:
-  - python>=3.10
-  - biopython>=1.79
-  - matplotlib-base>=3.6
-  - pip
+  - python=3.12
+  - biopython=1.88
+  - matplotlib-base=3.11.2
+  - pip=26.2.2
   # repeats
-  - mummer4
+  - mummer4=4.0.1
   # insertion sequences
-  - isescan
+  - isescan=1.7.3
   # prophages (geNomad also needs its database: `refmasker download-db DIR`)
-  - genomad
-  - phispy
+  - genomad=1.13.0
+  - phispy=5.0.10
   # rRNA operons
-  - barrnap
+  - barrnap=1.10.6
   # low complexity (dustmasker)
-  - blast
+  - blast=2.17.0
   # CRISPR arrays
-  - minced
-  # development
-  - pytest
-  - ruff
-  - pip:
-      - -e .
+  - minced=0.4.2
+  # tests and lint (small; kept here so `pytest -m slow` runs in the same environment)
+  - pytest=9.2.0
+  - ruff=0.17.5

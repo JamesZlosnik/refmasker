@@ -24,7 +24,8 @@
 | `--formats LIST` | `html,pdf,png` | Report formats; `none` writes only the BED and TSV files |
 | `--threads N` | 1 or scheduler allocation | Threads for external tools. Without `--threads`, uses `SLURM_CPUS_PER_TASK`, `NSLOTS` or `PBS_NUM_PPN` if set, otherwise 1 |
 | `--keep-work` | off | Keep raw tool outputs in `OUTDIR/work` |
-| `--force` | off | Write into a non-empty output folder |
+| `--force` | off | Overwrite a previous refmasker output folder. Refuses any non-empty folder without `run_info.json` or `refmasker.log`, so it cannot clear an unrelated folder (such as a Nextflow `work/`) |
+| `--redact` | off | For sharing reports: HTML, PDF and `run_info.json` show input file names instead of full paths and leave out FASTA header descriptions. Record IDs stay (the mask needs them); `refmasker.log` keeps full paths |
 | `-q, --quiet` | off | Print only warnings and errors (the log file still gets everything) |
 
 ## Choosing the repeat thresholds
