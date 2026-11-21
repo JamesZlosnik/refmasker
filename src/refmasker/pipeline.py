@@ -41,12 +41,13 @@ from refmasker.summary import (
 
 log = logging.getLogger(__name__)
 
+# A large prophage can overlap hundreds of genes; list at most this many per region.
 MAX_GENES_LISTED = 50
 
 
 @dataclass
 class RunData:
-    """Everything the report needs."""
+    """Everything the reports and run_info.json need, collected by `_run`."""
 
     reference: Path
     reference_md5: str
@@ -70,13 +71,20 @@ class RunData:
 
     @property
     def genome_length(self) -> int:
+        """Total length of all records in bp."""
         return sum(r.length for r in self.records)
 
 
 def resolve_categories(
     spec: str, extra_bed: bool, mask_plasmids: bool, gene_regex: bool = False
 ) -> list[str]:
-    """Turn '--categories default,crispr' into an ordered list of category names."""
+    """Turn '--categories default,crispr' into an ordered list of category names.
+
+    'default' expands to the default categories and 'all' to every category except 'user'
+    and 'genes', which need extra inputs. Options that imply a category (--extra-bed,
+    --mask-plasmids, --mask-genes-matching) add it. The result follows the registry order,
+    whatever order the user typed.
+    """
     known = categories()
     chosen: list[str] = []
     for token in (t.strip().lower() for t in spec.split(",") if t.strip()):
@@ -90,13 +98,15 @@ def resolve_categories(
             raise ValueError(
                 f"Unknown category '{token}'. Choose from: {', '.join(known)}, default, all"
             )
-        chosen.extend(n for n in names if n not in chosen)
+        chosen.extend(n for n in names if n not in chosen)  # each name once
+    # Options that imply a category switch it on...
     if extra_bed and "user" not in chosen:
         chosen.append("user")
     if mask_plasmids and "plasmid" not in chosen:
         chosen.append("plasmid")
     if gene_regex and "genes" not in chosen:
         chosen.append("genes")
+    # ...and a category chosen without the option it needs fails now, before any work.
     if "user" in chosen and not extra_bed:
         raise ValueError("Category 'user' needs --extra-bed")
     if "genes" in chosen and not gene_regex:
@@ -112,6 +122,11 @@ RUN_MARKERS = ("run_info.json", "refmasker.log")
 
 
 def prepare_outdir(outdir: Path, force: bool) -> None:
+    """Create the output folder, refusing to overwrite anything but a previous refmasker run.
+
+    With --force, the old work/ and figures/ folders are deleted; the other output files are
+    overwritten as the new run writes them.
+    """
     if outdir.exists() and any(outdir.iterdir()):
         if not force:
             raise FileExistsError(f"Output folder {outdir} exists and is not empty (use --force)")
@@ -127,6 +142,7 @@ def prepare_outdir(outdir: Path, force: bool) -> None:
 
 
 def add_file_logging(outdir: Path) -> logging.Handler:
+    """Copy every log message (INFO and above) to OUTDIR/refmasker.log, with timestamps."""
     handler = logging.FileHandler(outdir / "refmasker.log", mode="w")
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     logging.getLogger().addHandler(handler)
@@ -162,6 +178,7 @@ def redactor(paths: list[str]):
 
 
 def annotate_genes(regions: list[Region], index: FeatureIndex | None) -> list[Region]:
+    """Attach the labels of the annotated genes each region overlaps (no-op without annotation)."""
     if index is None:
         return regions
     out = []
@@ -175,6 +192,11 @@ def annotate_genes(regions: list[Region], index: FeatureIndex | None) -> list[Re
 
 
 def run(opts) -> RunData:
+    """Run the whole workflow for one reference (the `refmasker run` command).
+
+    Sets up the output folder and its log file, then calls `_run`. The log file handler is
+    removed afterwards even if the run fails.
+    """
     t0 = time.time()
     started = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     outdir = Path(opts.outdir)
@@ -188,11 +210,24 @@ def run(opts) -> RunData:
 
 
 def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
+    """The workflow, in order:
+
+    1. resolve threads and categories; check the tools they need are installed
+    2. read the reference; warn about draft assemblies and N bases
+    3. load the annotation (optional); check its sequence names match the FASTA
+    4. run each category's detector on a normalised copy of the FASTA
+    5. pad, label and sort the regions; write mask.bed, mask.annotated.bed and summary.tsv
+    6. collect parameters and tool versions; redact paths if asked
+    7. write the reports and run_info.json; delete work/ unless --keep-work
+    """
+    # ---- 1. Threads, categories and tools ----
     log.info("refmasker %s", __version__)
+    # The command as typed, quoted so it can be copied and re-run.
     command = "refmasker " + " ".join(shlex.quote(a) for a in sys.argv[1:])
     log.info("Command: %s", command)
 
     threads = resolve_threads(opts.threads)
+    # Also cap numerical libraries' thread pools, so total CPU use stays within the limit.
     limit_library_threads(threads)
     log.info("Threads: %d", threads)
 
@@ -202,6 +237,7 @@ def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
     log.info("Categories: %s", ", ".join(cats))
     registry = categories()
 
+    # Check every tool up front rather than failing halfway through a long run.
     needed = sorted({t for c in cats for t in registry[c].tools(opts)})
     missing = external.missing_tools(needed)
     if missing:
@@ -212,6 +248,7 @@ def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
             "or drop the categories that need them with --categories."
         )
 
+    # ---- 2. Reference genome ----
     reference = Path(opts.reference)
     records = read_fasta(reference)
     lengths = {r.id: r.length for r in records}
@@ -222,6 +259,7 @@ def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
     warnings: list[str] = []
     plasmids = plasmid_ids(records, opts.plasmid_ids)
     chromosomal = [r for r in records if r.id not in plasmids]
+    # A complete genome has one chromosome (plus plasmids); more records suggests a draft.
     if len(chromosomal) > 1:
         warnings.append(
             f"The reference has {len(chromosomal)} non-plasmid records. If this is a draft "
@@ -232,6 +270,7 @@ def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
     if n_count:
         warnings.append(f"The reference contains {n_count:,} N bases.")
 
+    # ---- 3. Annotation (optional) ----
     features = None
     index = None
     annotation = Path(opts.annotation) if opts.annotation else None
@@ -243,6 +282,8 @@ def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
         log.info(
             "Annotation: %s (%s), %d features", annotation, opts.annotation_format, len(features)
         )
+        # Sequence names that differ between annotation and FASTA would silently give empty
+        # gene lists, so warn about them.
         unmatched = index.seqids - set(lengths)
         if not index.seqids & set(lengths):
             warnings.append(
@@ -254,6 +295,9 @@ def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
                 f"Annotation sequences not in the FASTA were ignored: {', '.join(sorted(unmatched))}."
             )
 
+    # ---- 4. Detectors ----
+    # Tools run on a copy of the reference with ID-only headers, so they all report the same
+    # sequence names as the FASTA IDs used in mask.bed.
     workdir = outdir / "work"
     workdir.mkdir(exist_ok=True)
     fasta = workdir / "reference.fna"
@@ -268,6 +312,7 @@ def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
         log.info("Detecting %s ...", name)
         res = registry[name].run(ctx)
         results[name] = res
+        # Regions on sequences not in the FASTA cannot go into mask.bed; drop them with a warning.
         bad = [r for r in res.regions if r.chrom not in lengths]
         if bad:
             names = sorted({r.chrom for r in bad})
@@ -280,17 +325,21 @@ def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
             notes[name] = res.notes
         log.info("%s: %d regions in %.0f s", name, len(res.regions), time.time() - t)
 
+    # ---- 5. Combine regions and write the mask files ----
+    # Pad each region (--pad, 0 by default), list the genes it overlaps, sort in FASTA order.
     regions = pad_and_clip(raw, opts.pad, lengths)
     regions = annotate_genes(regions, index)
     order = [r.id for r in records]
     regions = sort_by_record(regions, order)
     merged = sort_by_record(merge(regions), order)
 
+    # mask.bed holds the merged intervals for snippy; mask.annotated.bed every region and why.
     write_mask_bed(outdir / "mask.bed", merged)
     write_annotated_bed(outdir / "mask.annotated.bed", regions)
     summary = summarise(regions, records, cats)
     write_summary_tsv(outdir / "summary.tsv", summary)
 
+    # How the repeat mask would change at other thresholds, from the same nucmer alignments.
     sensitivity: list[SensitivityRow] = []
     if "repeats" in results:
         sensitivity = repeat_sensitivity(
@@ -302,12 +351,14 @@ def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
             SENSITIVITY_IDENTITIES,
         )
 
+    # ---- 6. Provenance: tool versions and parameters ----
     versions = {"refmasker": __version__, "python": platform.python_version()}
     for tool in needed:
         versions[tool] = external.tool_version(tool)
     if "prophage" in cats and opts.phage_tool == "genomad":
         versions["genomad_db"] = genomad_db_version(genomad_db(opts.genomad_db))
 
+    # Options that belong to a category are recorded as None when that category did not run.
     params = {
         "categories": cats,
         "read_length": opts.read_length,
@@ -322,6 +373,7 @@ def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
         "threads": threads,
     }
 
+    # Checksums identify the exact reference file, even when --redact hides its path.
     sums = checksums(reference)
     if opts.redact:
         # Reports only: refmasker.log keeps full paths for debugging.
@@ -355,6 +407,7 @@ def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
     for w in warnings:
         log.warning(w)
 
+    # The genome-wide total row of the summary.
     total = next(r for r in summary if r.record == "ALL" and r.category == "total")
     log.info(
         "Masked %s of %s bp (%.2f%%) in %d regions",
@@ -364,6 +417,7 @@ def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
         len(merged),
     )
 
+    # ---- 7. Reports and clean-up ----
     data.runtime_s = time.time() - t0
     from refmasker.report import write_reports
 
@@ -377,6 +431,10 @@ def _run(opts, outdir: Path, t0: float, started: str) -> RunData:
 
 
 def write_run_info(data: RunData, path: Path) -> None:
+    """Write run_info.json: a machine-readable record of inputs, parameters, versions and result.
+
+    FASTA header descriptions are left out with --redact.
+    """
     total = next(r for r in data.summary if r.record == "ALL" and r.category == "total")
     info = {
         "refmasker_version": __version__,

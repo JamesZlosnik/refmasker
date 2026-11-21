@@ -9,6 +9,10 @@ from refmasker.regions import Region
 
 
 def detect(ctx: Context) -> Result:
+    """Mask annotated genes whose product, gene name or locus tag matches --mask-genes-matching.
+
+    The pattern is a case-insensitive Python regular expression.
+    """
     pattern = ctx.options.mask_genes_matching
     if ctx.features is None:
         raise ValueError("--mask-genes-matching needs an --annotation file")
@@ -18,10 +22,12 @@ def detect(ctx: Context) -> Result:
         raise ValueError(f"--mask-genes-matching: invalid regular expression: {exc}") from exc
     regions = []
     for f in ctx.features:
+        # Gene-like features only; mobile elements belong to the 'is' category.
         if f.ftype not in {"CDS", "pseudogene", "rRNA", "tRNA", "ncRNA"}:
             continue
         if any(rx.search(x) for x in (f.product, f.gene, f.locus_tag) if x):
-            name = " ".join(x for x in (f.locus_tag, f.product) if x)
+            name = " ".join(x for x in (f.locus_tag, f.product) if x)  # e.g. "tag product"
             regions.append(Region(f.seqid, f.start, f.end, "genes", "annotation", name))
+    # Tell the user when nothing matched: the pattern may be wrong.
     notes = [] if regions else [f"No annotated genes matched '{pattern}'."]
     return Result(regions=regions, notes=notes)

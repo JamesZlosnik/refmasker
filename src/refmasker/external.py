@@ -10,7 +10,8 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# How to ask each tool for its version.
+# How to ask each tool for its version. None means the tool has no version option and is just
+# reported as "installed" (show-coords comes with MUMmer, so nucmer's version covers it).
 VERSION_COMMANDS = {
     "nucmer": ["nucmer", "--version"],
     "show-coords": None,
@@ -24,21 +25,28 @@ VERSION_COMMANDS = {
 
 
 class ToolError(RuntimeError):
-    pass
+    """An external tool is missing, failed, or produced no usable output."""
 
 
 def missing_tools(tools: list[str]) -> list[str]:
+    """Return the tools in `tools` that are not on PATH."""
     return [t for t in tools if shutil.which(t) is None]
 
 
 def tool_version(tool: str) -> str:
+    """Return a tool's version number, or "not found", "installed" or "unknown".
+
+    The version is the first number like X.Y or X.Y.Z in the tool's output.
+    """
     cmd = VERSION_COMMANDS.get(tool)
+    # No known version command, or its program is missing: just say whether the tool exists.
     if not cmd or shutil.which(cmd[0]) is None:
         return "installed" if shutil.which(tool) else "not found"
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.TimeoutExpired):
         return "unknown"
+    # Some tools print their version on stderr, so search both streams.
     text = (p.stdout or "") + "\n" + (p.stderr or "")
     for line in text.splitlines():
         line = line.strip()
@@ -61,6 +69,8 @@ def run(
     """Run a command, logging it and saving stderr to `log_dir/name.log`.
 
     If `stdout_path` is given, stdout is written there; otherwise it is captured.
+    The command is an argument list run without a shell, so spaces or special characters in
+    file names cannot be misread as shell syntax.
     """
     log_dir.mkdir(parents=True, exist_ok=True)
     err_path = log_dir / f"{name}.log"
@@ -72,6 +82,7 @@ def run(
         else:
             p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=err, text=True, cwd=cwd)
     if p.returncode != 0:
+        # Put the end of the tool's log in the error message so the user can see why it failed.
         tail = "".join(err_path.read_text().splitlines(keepends=True)[-20:])
         raise ToolError(
             f"{cmd[0]} failed with exit code {p.returncode}. Last lines of {err_path}:\n{tail}"

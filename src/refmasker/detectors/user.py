@@ -7,6 +7,11 @@ from refmasker.regions import read_bed
 
 
 def detect(ctx: Context) -> Result:
+    """Load the BED files given with --extra-bed.
+
+    A sequence name not in the FASTA is an error. Regions running past the end of a sequence
+    are kept with a note; the pipeline clips them to the sequence length.
+    """
     result = Result()
     lengths = ctx.lengths
     for path in ctx.options.extra_bed or []:

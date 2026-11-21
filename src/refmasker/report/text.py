@@ -1,5 +1,6 @@
 """Plain-language explanations shared by the HTML and PDF reports."""
 
+# One-paragraph reason per category, shown in the "Why each category is masked" sections.
 WHY = {
     "repeats": (
         "Sequence present in two or more copies at or above the length and identity thresholds. "
@@ -37,10 +38,12 @@ WHY = {
     "user": "Regions supplied with --extra-bed.",
 }
 
+# Example command shown in the reports for using the mask with snippy-core.
 SNIPPY_USAGE = (
     "snippy-core --ref reference.fna --mask mask.bed --prefix core snippy_dir1 snippy_dir2 ..."
 )
 
 
 def fmt_bp(n: int) -> str:
+    """Format a base-pair count with thousands separators, e.g. 4411532 -> '4,411,532'."""
     return f"{n:,}"

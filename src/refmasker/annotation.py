@@ -30,6 +30,8 @@ TRANSPOSASE_RE = re.compile(
 
 @dataclass(frozen=True)
 class Feature:
+    """One annotated feature, with BED-style coordinates (0-based start, exclusive end)."""
+
     seqid: str
     start: int  # 0-based
     end: int  # exclusive
@@ -41,6 +43,7 @@ class Feature:
 
     @property
     def label(self) -> str:
+        """Name shown in reports: 'locus_tag(gene)', else whichever exists, else the type."""
         tag = self.locus_tag or self.gene or self.ftype
         if self.gene and self.locus_tag:
             tag = f"{self.locus_tag}({self.gene})"
@@ -48,12 +51,18 @@ class Feature:
 
     @property
     def is_mobile(self) -> bool:
+        """True for mobile elements, and for CDS/pseudogenes with a transposase/IS product."""
         if self.ftype in MOBILE_TYPES:
             return True
         return self.ftype in {"CDS", "pseudogene"} and bool(TRANSPOSASE_RE.search(self.product))
 
 
 def detect_format(path: str | Path) -> str:
+    """Return 'genbank' or 'gff3' by looking at the first line that is not a comment.
+
+    GenBank files start with 'LOCUS'; GFF3 has a '##gff-version' header or 9 tab-separated
+    columns.
+    """
     with open_text(path) as fh:
         for line in fh:
             if not line.strip():
@@ -69,11 +78,13 @@ def detect_format(path: str | Path) -> str:
 
 
 def load_annotation(path: str | Path) -> list[Feature]:
+    """Read a GFF3 or GenBank file (format detected automatically) into Features."""
     fmt = detect_format(path)
     return parse_gff3(path) if fmt == "gff3" else parse_genbank(path)
 
 
 def _gff_attrs(text: str) -> dict[str, str]:
+    """Parse a GFF3 attribute column ('ID=x;Name=y') into a dict, decoding %-escapes."""
     attrs = {}
     for item in text.strip().strip(";").split(";"):
         if "=" in item:
@@ -88,10 +99,13 @@ def parse_gff3(path: str | Path) -> list[Feature]:
     CDS/RNA lines often carry only a product; their locus tag and gene name live on the
     parent gene line, so names are filled in by walking up the Parent chain.
     """
+    # First pass: keep the 9-column feature lines and index each by its ID, so a feature's
+    # parent gene can be found whatever order the lines are in.
     rows = []
     by_id: dict[str, dict[str, str]] = {}
     with open_text(path) as fh:
         for line in fh:
+            # Some GFF3 files (e.g. Prokka's) end with the sequence after ##FASTA; stop there.
             if line.startswith("##FASTA"):
                 break
             if line.startswith("#") or not line.strip():
@@ -106,6 +120,7 @@ def parse_gff3(path: str | Path) -> list[Feature]:
             rows.append((cols, a))
 
     def lineage(a: dict[str, str]) -> list[dict[str, str]]:
+        """The feature, its parent, grandparent, ... (at most 4; stops at unknown IDs or loops)."""
         chain = [a]
         seen = set()
         while "Parent" in chain[-1] and len(chain) < 4:
@@ -117,29 +132,35 @@ def parse_gff3(path: str | Path) -> list[Feature]:
         return chain
 
     def first(chain: list[dict[str, str]], *keys: str) -> str:
+        """First non-empty value of any of `keys`, searching from the feature upwards."""
         for a in chain:
             for k in keys:
                 if a.get(k):
                     return a[k]
         return ""
 
+    # Second pass: build Features for gene-like and mobile-element lines only.
     features = []
     for cols, a in rows:
         seqid, _src, ftype, start, end, _score, strand, _phase, _attr = cols
+        # NCBI marks pseudogenes as 'gene' lines with pseudo=true.
         if ftype == "gene" and a.get("pseudo") == "true":
             ftype = "pseudogene"
         if ftype not in GENE_TYPES and ftype not in MOBILE_TYPES:
             continue
+        # The gene name comes from the parent gene line; the locus tag from anywhere in the
+        # chain (Ensembl-style files use gene_id instead).
         chain = lineage(a)
         genes = [x for x in chain if x["_type"] in {"gene", "pseudogene"}]
         gene_name = first(genes, "gene", "Name") if genes else a.get("gene", "")
         locus = first(chain, "locus_tag") or first(genes, "gene_id")
+        # Some annotators repeat the locus tag as the gene name; drop it to avoid 'X(X)' labels.
         if gene_name == locus:
             gene_name = ""
         features.append(
             Feature(
                 seqid=seqid,
-                start=int(start) - 1,
+                start=int(start) - 1,  # GFF3 is 1-based inclusive; convert to 0-based
                 end=int(end),
                 strand=strand,
                 ftype=ftype,
@@ -152,6 +173,7 @@ def parse_gff3(path: str | Path) -> list[Feature]:
 
 
 def parse_genbank(path: str | Path) -> list[Feature]:
+    """Parse a GenBank file with Biopython (its locations are already 0-based, end-exclusive)."""
     from Bio import SeqIO
 
     features = []
@@ -164,6 +186,7 @@ def parse_genbank(path: str | Path) -> list[Feature]:
                     ftype = "pseudogene"
                 if ftype not in GENE_TYPES and ftype not in MOBILE_TYPES:
                     continue
+                # Biopython stores each qualifier as a list; take the first value.
                 product = q.get("product", q.get("mobile_element_type", [""]))[0]
                 features.append(
                     Feature(
@@ -181,7 +204,12 @@ def parse_genbank(path: str | Path) -> list[Feature]:
 
 
 class FeatureIndex:
-    """Fast overlap lookup of gene features per sequence."""
+    """Fast lookup of the gene features overlapping an interval, per sequence.
+
+    Features are sorted by start. A feature overlapping [start, end) must start before `end`,
+    and cannot start more than the longest feature's length before `start`, so a binary search
+    narrows the candidates before each one is checked.
+    """
 
     def __init__(self, features: list[Feature]):
         self._by_seq: dict[str, list[Feature]] = defaultdict(list)
@@ -197,9 +225,11 @@ class FeatureIndex:
 
     @property
     def seqids(self) -> set[str]:
+        """Sequence names that have at least one gene feature."""
         return set(self._by_seq)
 
     def overlapping(self, seqid: str, start: int, end: int) -> list[Feature]:
+        """Gene features on `seqid` overlapping the half-open interval [start, end)."""
         fs = self._by_seq.get(seqid)
         if not fs:
             return []

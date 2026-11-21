@@ -10,10 +10,12 @@ from refmasker.report import html, pdf, plots
 
 log = logging.getLogger(__name__)
 
+# Report formats accepted by --formats.
 FORMATS = {"html", "pdf", "png"}
 
 
 def parse_formats(spec: str) -> set[str]:
+    """Turn '--formats html,pdf' into a set of format names; 'none' means no reports."""
     chosen = {f.strip().lower() for f in spec.split(",") if f.strip()}
     if "none" in chosen:
         return set()
@@ -26,6 +28,10 @@ def parse_formats(spec: str) -> set[str]:
 
 
 def write_reports(data, outdir: Path, formats: set[str]) -> None:
+    """Draw the two figures once and reuse them for every requested format.
+
+    SVG copies always go to figures/ because the HTML report embeds them; PNGs only with 'png'.
+    """
     if not formats:
         log.info("No report formats requested")
         return
@@ -42,8 +48,10 @@ def write_reports(data, outdir: Path, formats: set[str]) -> None:
             pdf.write_pdf(data, outdir / "report.pdf", [lin, circ], labels)
             log.info("Wrote %s", outdir / "report.pdf")
     finally:
+        # Free the figures' memory even if writing failed.
         plots.close(lin)
         plots.close(circ)
+    # The HTML report reads the saved SVG files, so it does not need the open figures.
     if "html" in formats:
         html.write_html(data, outdir / "report.html", [lin_paths["svg"], circ_paths["svg"]], labels)
         log.info("Wrote %s", outdir / "report.html")

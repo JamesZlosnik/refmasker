@@ -27,6 +27,7 @@ def resolve_threads(requested: int | None, environ: dict[str, str] | None = None
     else 1. Never default to every core on the machine.
     """
     env = os.environ if environ is None else environ
+    # An explicit request is used as given (after a sanity check and a warning if too high).
     if requested is not None:
         if requested < 1:
             raise ValueError("--threads must be at least 1")
@@ -34,11 +35,13 @@ def resolve_threads(requested: int | None, environ: dict[str, str] | None = None
         if requested > ncpu:
             log.warning("--threads %d is more than the %d CPUs on this machine", requested, ncpu)
         return requested
+    # No request: use the job's allocation, checking SLURM, then SGE, then PBS.
     for var in SCHEDULER_VARS:
         val = env.get(var, "").strip()
         if val.isdigit() and int(val) > 0:
             log.info("Using %s=%s threads from the job scheduler", var, val)
             return int(val)
+    # Not inside a scheduler job: use one thread to be safe on a shared machine.
     return 1
 
 

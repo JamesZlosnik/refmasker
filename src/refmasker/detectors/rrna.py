@@ -13,6 +13,10 @@ log = logging.getLogger(__name__)
 
 
 def parse_barrnap_gff(text: str) -> list[Region]:
+    """Parse barrnap's GFF: one 'rRNA' line per gene.
+
+    Names like '16S_rRNA' become '16S', and partial genes are marked '(partial)'.
+    """
     regions = []
     for line in text.splitlines():
         if line.startswith("#") or not line.strip():
@@ -44,6 +48,7 @@ def group_operons(regions: list[Region], max_gap: int) -> list[Region]:
         rs.sort(key=lambda r: r.start)
         group = [rs[0]]
         for r in rs[1:]:
+            # Gap between this gene and the furthest end reached by the current operon.
             if r.start - max(g.end for g in group) <= max_gap:
                 group.append(r)
             else:
@@ -54,6 +59,7 @@ def group_operons(regions: list[Region], max_gap: int) -> list[Region]:
 
 
 def _operon(chrom: str, group: list[Region]) -> Region:
+    """One region spanning a group of rRNA genes, e.g. 'operon 16S,23S,5S' (or a lone gene)."""
     names = ",".join(r.name for r in group)
     label = f"operon {names}" if len(group) > 1 else names
     return Region(
@@ -62,6 +68,7 @@ def _operon(chrom: str, group: list[Region]) -> Region:
 
 
 def detect(ctx: Context) -> Result:
+    """Run barrnap with its bacterial models, then join nearby rRNA genes into operons."""
     wd = ctx.workdir / "barrnap"
     wd.mkdir(parents=True, exist_ok=True)
     gff = wd / "barrnap.gff"

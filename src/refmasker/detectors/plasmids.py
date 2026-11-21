@@ -10,6 +10,7 @@ from refmasker.seqio import Record
 def plasmid_ids(records: list[Record], named: list[str] | None = None) -> list[str]:
     """Records whose FASTA description mentions 'plasmid', plus any named explicitly."""
     named_set = set(named or [])
+    # Fail early on IDs that are not in the FASTA (probably a typo).
     unknown = named_set - {r.id for r in records}
     if unknown:
         raise ValueError(
@@ -19,6 +20,7 @@ def plasmid_ids(records: list[Record], named: list[str] | None = None) -> list[s
 
 
 def detect(ctx: Context) -> Result:
+    """Mask every plasmid record from end to end."""
     ids = plasmid_ids(ctx.records, ctx.options.plasmid_ids)
     lengths = ctx.lengths
     regions = [Region(i, 0, lengths[i], "plasmid", "fasta", "whole plasmid") for i in ids]

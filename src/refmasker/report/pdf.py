@@ -10,13 +10,18 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 from refmasker.report.text import SNIPPY_USAGE, WHY
 
-A4 = (8.27, 11.69)
-ROWS_PER_PAGE = 48
+A4 = (8.27, 11.69)  # page size in inches (matplotlib figure sizes are in inches)
+ROWS_PER_PAGE = 48  # region table rows that fit on one page
 
 
 def _text_page(pdf, lines: list[tuple[str, dict]]):
+    """Draw lines of text down one A4 page.
+
+    Each line has a style dict with optional keys: size (pt), weight, family, wrap
+    (characters per line) and after (extra space below, as a fraction of the page height).
+    """
     fig = plt.figure(figsize=A4)
-    y = 0.95
+    y = 0.95  # vertical position as a fraction of the page height, from the bottom
     for text, style in lines:
         size = style.get("size", 9)
         wrap = style.get("wrap", 100)
@@ -30,6 +35,8 @@ def _text_page(pdf, lines: list[tuple[str, dict]]):
                 family=style.get("family", "sans-serif"),
                 va="top",
             )
+            # Move down one line: points / 72 = inches, / page height = fraction of the
+            # page, x 1.45 for line spacing.
             y -= size / 72 / A4[1] * 1.45
         y -= style.get("after", 0.004)
     pdf.savefig(fig)
@@ -37,6 +44,7 @@ def _text_page(pdf, lines: list[tuple[str, dict]]):
 
 
 def _table_page(pdf, title: str, header: list[str], rows: list[list[str]], widths=None, note=""):
+    """Draw one table on an A4 page, with a title, an optional note and a bold header row."""
     fig = plt.figure(figsize=A4)
     fig.text(0.07, 0.96, title, fontsize=12, weight="bold", va="top")
     if note:
@@ -60,8 +68,14 @@ def _table_page(pdf, title: str, header: list[str], rows: list[list[str]], width
 
 
 def write_pdf(data, path: Path, figures, labels: dict[str, str]) -> None:
+    """Write report.pdf with matplotlib alone (no PDF library needed).
+
+    Pages: summary text, the figures, the repeat sensitivity table, the region table (split
+    over as many pages as needed) and run details.
+    """
     total = next(r for r in data.summary if r.record == "ALL" and r.category == "total")
     with PdfPages(path) as pdf:
+        # Page 1: headline numbers, warnings, per-category amounts, reasons and snippy usage.
         lines: list[tuple[str, dict]] = [
             (
                 f"Reference mask for {data.reference.name}",
@@ -103,6 +117,7 @@ def write_pdf(data, path: Path, figures, labels: dict[str, str]) -> None:
         lines.append((SNIPPY_USAGE, {"size": 8, "family": "monospace", "wrap": 110}))
         _text_page(pdf, lines)
 
+        # One page per figure (linear, then circular).
         for fig in figures:
             pdf.savefig(fig, bbox_inches="tight")
 
@@ -124,6 +139,7 @@ def write_pdf(data, path: Path, figures, labels: dict[str, str]) -> None:
                 ],
             )
 
+        # Region table. Long names and gene lists are cut short to fit the page.
         rows = [
             [
                 r.chrom,
@@ -139,7 +155,7 @@ def write_pdf(data, path: Path, figures, labels: dict[str, str]) -> None:
         ]
         header = ["Record", "Start", "End", "Length", "Category", "Source", "Name", "Genes"]
         widths = [0.13, 0.08, 0.08, 0.07, 0.1, 0.09, 0.2, 0.25]
-        pages = max(1, -(-len(rows) // ROWS_PER_PAGE))
+        pages = max(1, -(-len(rows) // ROWS_PER_PAGE))  # -(-a // b) rounds a / b up
         for p in range(pages):
             chunk = rows[p * ROWS_PER_PAGE : (p + 1) * ROWS_PER_PAGE]
             _table_page(
@@ -151,6 +167,7 @@ def write_pdf(data, path: Path, figures, labels: dict[str, str]) -> None:
                 note="Start is 1-based; names and gene lists are truncated (full list in mask.annotated.bed).",
             )
 
+        # Last page: run details for provenance.
         details = [
             ("Run details", {"size": 12, "weight": "bold", "after": 0.008}),
             (f"Reference: {data.reference}", {"size": 8.5}),

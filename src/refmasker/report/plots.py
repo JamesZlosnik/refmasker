@@ -6,10 +6,13 @@ import math
 
 import matplotlib
 
+# Non-interactive backend: draw straight to files, no display needed (e.g. on a cluster node).
+# It must be chosen before pyplot is imported, hence the imports below it.
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
+# svg.fonttype "none" keeps text as real text in SVGs (searchable, smaller files).
 plt.rcParams.update(
     {
         "svg.fonttype": "none",
@@ -37,15 +40,22 @@ MAX_PANELS = 6  # records drawn separately; beyond this, contigs are concatenate
 
 
 def colour(cat: str) -> str:
+    """Colour of a category (grey for unknown ones)."""
     return COLOURS.get(cat, "#999999")
 
 
 def _scale(length: int) -> tuple[float, str]:
+    """Divisor and unit for axis labels: Mb for 1 Mb or more, else kb."""
     return (1e6, "Mb") if length >= 1_000_000 else (1e3, "kb")
 
 
 def _layout(data):
-    """Return a list of panels: (title, length, [(chrom, offset)])."""
+    """Return a list of panels: (title, length, [(chrom, offset)]).
+
+    Up to MAX_PANELS records each get their own panel, largest first. More records (a draft
+    assembly) are drawn end to end in one panel, in FASTA order; `offset` is where each
+    record starts in that panel.
+    """
     recs = sorted(data.records, key=lambda r: -r.length)
     if len(recs) <= MAX_PANELS:
         return [(r.id, r.length, [(r.id, 0)]) for r in recs]
@@ -57,10 +67,15 @@ def _layout(data):
 
 
 def _tracks(data):
+    """Track order: all masked bases first, then each category."""
     return ["all"] + list(data.categories)
 
 
 def _segments(data, cat: str, offsets: dict[str, int]):
+    """(start, width) bars for one track, shifted by each record's offset in the panel.
+
+    The 'all' track uses the merged mask; category tracks use their unmerged regions.
+    """
     if cat == "all":
         items = [(m.chrom, m.start, m.end) for m in data.merged]
     else:
@@ -69,13 +84,15 @@ def _segments(data, cat: str, offsets: dict[str, int]):
 
 
 def label(cat: str, labels: dict[str, str]) -> str:
+    """Track name shown on the figures."""
     return "All masked" if cat == "all" else labels.get(cat, cat)
 
 
 def linear_figure(data, labels: dict[str, str]):
+    """One horizontal panel per record, with a row of bars per track ('All masked' on top)."""
     panels = _layout(data)
     tracks = _tracks(data)
-    row_h = 0.3
+    row_h = 0.3  # inches per track; each panel's height grows with the number of tracks
     heights = [len(tracks) * row_h + 0.7 for _ in panels]
     fig, axes = plt.subplots(
         len(panels),
@@ -87,6 +104,7 @@ def linear_figure(data, labels: dict[str, str]):
     for ax, (title, length, offsets) in zip(axes[:, 0], panels, strict=True):
         off = dict(offsets)
         div, unit = _scale(length)
+        # Rows are drawn from the bottom up, so reverse the tracks to put 'All masked' on top.
         for i, cat in enumerate(reversed(tracks)):
             segs = _segments(data, cat, off)
             ax.broken_barh(
@@ -100,6 +118,7 @@ def linear_figure(data, labels: dict[str, str]):
         ax.set_yticklabels([label(c, labels) for c in reversed(tracks)])
         ax.set_ylim(0, len(tracks))
         ax.set_xlim(0, length)
+        # Keep only ticks inside the record and label them in kb or Mb.
         ticks = ax.get_xticks()
         ax.set_xticks([t for t in ticks if 0 <= t <= length])
         ax.set_xticklabels([f"{t / div:g}" for t in ax.get_xticks()])
@@ -107,6 +126,7 @@ def linear_figure(data, labels: dict[str, str]):
         ax.set_title(f"{title}  ({length:,} bp)", loc="left", fontsize=9)
         ax.spines["left"].set_visible(False)
         ax.tick_params(axis="y", length=0)
+        # In a concatenated panel, thin grey lines mark where each contig starts.
         if len(offsets) > 1:
             for _c, o in offsets[1:]:
                 ax.axvline(o, color="#cccccc", linewidth=0.3, zorder=0)
@@ -115,10 +135,15 @@ def linear_figure(data, labels: dict[str, str]):
 
 
 def circular_figure(data, labels: dict[str, str]):
+    """A circular plot per record (at most the 4 largest), one ring per track.
+
+    'All masked' is the outermost ring. Position 0 is at the top and the genome runs clockwise.
+    """
     panels = _layout(data)[:4]
     tracks = _tracks(data)
     n = len(panels)
     fig = plt.figure(figsize=(5.2 * n if n > 1 else 7.5, 6.2 if n > 1 else 7.5))
+    # Each track gets an equal-width ring between radius `inner` and `outer`.
     inner, outer = 0.35, 1.0
     ring = (outer - inner) / len(tracks)
     for k, (title, length, offsets) in enumerate(panels):
@@ -131,6 +156,7 @@ def circular_figure(data, labels: dict[str, str]):
             bottom = outer - (i + 1) * ring
             segs = _segments(data, cat, off)
             if segs:
+                # Convert bp to angles: the record's full length is one turn (2 pi radians).
                 theta = [2 * math.pi * s / length for s, _w in segs]
                 width = [max(2 * math.pi * w / length, min_w) for _s, w in segs]
                 ax.bar(
@@ -143,6 +169,7 @@ def circular_figure(data, labels: dict[str, str]):
                     edgecolor=colour(cat),
                     linewidth=0.3,
                 )
+            # A light grey full ring behind each track, so empty tracks are still visible.
             ax.bar(
                 0,
                 ring * 0.8,
@@ -153,6 +180,7 @@ def circular_figure(data, labels: dict[str, str]):
                 zorder=0,
             )
         div, unit = _scale(length)
+        # Position labels around the circle at a round spacing.
         step = _nice_step(length / div)
         ticks = [t * step for t in range(int((length / div) // step) + 1)]
         ax.set_xticks([2 * math.pi * t * div / length for t in ticks])
@@ -177,6 +205,7 @@ def circular_figure(data, labels: dict[str, str]):
 
 
 def _nice_step(span: float) -> float:
+    """Tick spacing giving about 8 ticks, rounded to 1, 2, 2.5 or 5 times a power of ten."""
     raw = span / 8
     mag = 10 ** math.floor(math.log10(raw)) if raw > 0 else 1
     for m in (1, 2, 2.5, 5, 10):
@@ -197,4 +226,5 @@ def save(fig, base, formats: set[str]) -> dict[str, str]:
 
 
 def close(fig) -> None:
+    """Free a figure's memory."""
     plt.close(fig)
