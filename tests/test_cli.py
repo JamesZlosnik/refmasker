@@ -1,6 +1,7 @@
 """End-to-end runs using only categories that need no external tools."""
 
 import json
+import os
 
 import pytest
 
@@ -99,6 +100,7 @@ def test_redact_hides_paths_and_descriptions(tmp_path, genome):
     assert info["redacted"] is True
     assert info["reference"] == "ref.fna"
     assert all("description" not in r for r in info["records"])
+    assert info["tool_paths"] is None
     assert "Test organism" not in info_text
     html = (out / "report.html").read_text()
     for text in (info_text, html):
@@ -116,6 +118,7 @@ def test_unredacted_keeps_descriptions(tmp_path, genome):
     info = json.loads((out / "run_info.json").read_text())
     assert info["redacted"] is False
     assert info["records"][0]["description"] == "Test organism chromosome"
+    assert info["tool_paths"] == {}  # the plasmid category needs no external tools
 
 
 def test_run_reports_missing_tools(tmp_path, genome, monkeypatch):
@@ -131,6 +134,52 @@ def test_formats_none(tmp_path, genome):
     assert (out / "mask.bed").exists()
     assert not (out / "report.html").exists()
     assert not (out / "figures").exists()
+
+
+def test_force_does_not_write_through_planted_symlink(tmp_path, genome):
+    out = tmp_path / "out"
+    args = ["run", str(genome), "-o", str(out), "--categories", "plasmid", "--formats", "none"]
+    assert main(args) == 0
+    victim = tmp_path / "victim.txt"
+    victim.write_text("important\n")
+    (out / "mask.bed").unlink()
+    (out / "mask.bed").symlink_to(victim)
+    assert main(args + ["--force"]) == 2
+    assert victim.read_text() == "important\n"
+
+
+def test_new_output_folder_is_closed_to_other_users(tmp_path, genome):
+    out = tmp_path / "out"
+    old = os.umask(0o022)
+    try:
+        assert main(["run", str(genome), "-o", str(out), "--categories", "plasmid"]) == 0
+    finally:
+        os.umask(old)
+    assert out.stat().st_mode & 0o007 == 0
+
+
+def test_failed_run_still_removes_work(tmp_path, genome):
+    """work/ holds a copy of the reference, so it must not be left behind by a failed run."""
+    bed = tmp_path / "extra.bed"
+    bed.write_text("not_in_fasta\t1\t10\n")
+    out = tmp_path / "out"
+    rc = main(
+        ["run", str(genome), "-o", str(out), "--categories", "plasmid", "--extra-bed", str(bed)]
+    )
+    assert rc == 2
+    assert not (out / "work").exists()
+    assert (out / "refmasker.log").exists()
+
+
+def test_hostile_record_id_is_escaped_and_does_not_crash_reports(tmp_path):
+    ref = tmp_path / "ref.fna"
+    ref.write_text(">ctg$\\foo$<img_src=x>1 plasmid\n" + "ACGT" * 500 + "\n")
+    out = tmp_path / "out"
+    rc = main(["run", str(ref), "-o", str(out), "--categories", "plasmid", "--formats", "html,pdf"])
+    assert rc == 0
+    html = (out / "report.html").read_text()
+    assert "<img" not in html
+    assert "&lt;img" in html
 
 
 def test_compare(tmp_path, capsys):

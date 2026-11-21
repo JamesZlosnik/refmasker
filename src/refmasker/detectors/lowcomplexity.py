@@ -20,16 +20,20 @@ def parse_dust_intervals(text: str) -> list[Region]:
     for line in text.splitlines():
         line = line.strip()
         if line.startswith(">"):
+            # A header names the sequence for the interval lines that follow it.
             chrom = line[1:].split()[0]
         elif " - " in line and chrom:
             s, e = (int(x) for x in line.split(" - "))
+            # +1 turns dustmasker's inclusive end into BED's exclusive end.
             regions.append(Region(chrom, s, e + 1, "lowcomplexity", "dustmasker", "dust"))
     return regions
 
 
 def find_homopolymers(records: list[Record], min_len: int) -> list[Region]:
+    """Find runs of a single base at least `min_len` long (any case; runs of N are ignored)."""
     if min_len <= 1:
         raise ValueError("--homopolymer-min-len must be at least 2")
+    # ([ACGT])\1{n-1,} matches one base followed by at least n-1 more of the same base.
     pattern = re.compile(r"([ACGTacgt])\1{" + str(min_len - 1) + ",}")
     regions = []
     for rec in records:
@@ -49,6 +53,7 @@ def find_homopolymers(records: list[Record], min_len: int) -> list[Region]:
 
 
 def detect(ctx: Context) -> Result:
+    """Run dustmasker for low-complexity intervals, and scan the sequence for homopolymers."""
     wd = ctx.workdir / "dustmasker"
     wd.mkdir(parents=True, exist_ok=True)
     out = wd / "dust.txt"

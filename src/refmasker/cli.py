@@ -9,9 +9,12 @@ from pathlib import Path
 
 from refmasker import __version__
 
+# A read longer than a repeat can be placed by the unique sequence on either side, so by default
+# only repeats at least as long as the reads are masked, and never shorter than 200 bp.
 DEFAULT_READ_LENGTH = 150
 MIN_REPEAT_FLOOR = 200
 
+# Example commands shown at the end of `refmasker --help`.
 EPILOG = """\
 examples:
   refmasker run ref.fna -o ref_mask
@@ -24,6 +27,7 @@ examples:
 
 
 def _positive_int(text: str) -> int:
+    """argparse type: an integer >= 0 (zero is allowed, despite the name)."""
     v = int(text)
     if v < 0:
         raise argparse.ArgumentTypeError("must be >= 0")
@@ -31,6 +35,7 @@ def _positive_int(text: str) -> int:
 
 
 def _identity(text: str) -> float:
+    """argparse type: a percent identity, above 0 and at most 100."""
     v = float(text)
     if not 0 < v <= 100:
         raise argparse.ArgumentTypeError("must be between 0 and 100")
@@ -38,6 +43,8 @@ def _identity(text: str) -> float:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Define the command line: the `run`, `compare`, `download-db` and `check` subcommands."""
+    # The category names and defaults in the help text come from the detector registry.
     from refmasker.detectors import categories, default_categories
 
     p = argparse.ArgumentParser(
@@ -50,10 +57,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"refmasker {__version__}")
     sub = p.add_subparsers(dest="command", metavar="COMMAND")
 
+    # "repeats (default); is (default); ...", listed in the --categories help.
     cat_help = "; ".join(
         f"{c.name}{' (default)' if c.default else ''}" for c in categories().values()
     )
 
+    # ---- refmasker run ----
     r = sub.add_parser(
         "run",
         help="build a mask for one reference genome",
@@ -81,6 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=f"minimum repeat length in bp [default: max({MIN_REPEAT_FLOOR}, --read-length)]",
     )
+    # "%%" is how argparse help text shows a literal "%".
     g.add_argument(
         "--repeat-min-id", type=_identity, default=90.0, help="minimum %% identity between copies"
     )
@@ -146,7 +156,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--threads",
         type=int,
         default=None,
-        help="threads to use [default: the job's allocation under SLURM/SGE, otherwise 1]",
+        help="threads to use [default: the job's allocation under SLURM/SGE/PBS, otherwise 1]",
+    )
+    g.add_argument(
+        "--max-genome-mb",
+        type=_positive_int,
+        default=50,
+        help="refuse a reference with more sequence than this (Mb), so a wrong input such as a "
+        "metagenome assembly fails at once instead of using a lot of memory and CPU; 0 = no limit",
     )
     g.add_argument(
         "--keep-work", action="store_true", help="keep intermediate tool outputs in OUTDIR/work"
@@ -165,6 +182,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     g.add_argument("-q", "--quiet", action="store_true", help="only print warnings and errors")
 
+    # ---- refmasker compare ----
     c = sub.add_parser(
         "compare",
         help="compare two BED masks",
@@ -181,6 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     c.add_argument("--out-prefix", help="write PREFIX.only_a.bed and PREFIX.only_b.bed")
 
+    # ---- refmasker download-db ----
     d = sub.add_parser(
         "download-db",
         help="download the geNomad database (~1.4 GB)",
@@ -188,27 +207,34 @@ def build_parser() -> argparse.ArgumentParser:
     )
     d.add_argument("dest", help="folder to download into")
 
+    # ---- refmasker check ----
     sub.add_parser("check", help="list the external tools refmasker uses and their versions")
     return p
 
 
 def setup_logging(quiet: bool = False) -> None:
+    """Log to stderr; with --quiet only warnings and errors reach the terminal."""
     logging.basicConfig(
         level=logging.WARNING if quiet else logging.INFO,
         format="[refmasker] %(levelname)s %(message)s",
         stream=sys.stderr,
     )
+    # The root logger stays at INFO so the run's log file (added later by the pipeline) still
+    # records everything; --quiet only raises the level of the terminal handler.
     logging.getLogger().setLevel(logging.INFO)
     if quiet:
         logging.getLogger().handlers[0].setLevel(logging.WARNING)
+    # matplotlib and fontTools log a lot of detail while drawing figures; keep them quiet.
     logging.getLogger("matplotlib").setLevel(logging.WARNING)
     logging.getLogger("fontTools").setLevel(logging.WARNING)
 
 
 def cmd_run(args) -> int:
+    """`refmasker run`: fill in defaults that depend on other options, then run the pipeline."""
     from refmasker.pipeline import run
     from refmasker.report import parse_formats
 
+    # --repeat-min-len defaults to the read length, but never below MIN_REPEAT_FLOOR.
     if args.repeat_min_len is None:
         args.repeat_min_len = max(MIN_REPEAT_FLOOR, args.read_length)
     args.formats = parse_formats(args.formats)
@@ -217,9 +243,11 @@ def cmd_run(args) -> int:
 
 
 def cmd_compare(args) -> int:
+    """`refmasker compare`: print overlap statistics for two BED masks."""
     from refmasker.compare import compare_files, format_report
     from refmasker.regions import write_mask_bed
 
+    # Turn the repeated --rename OLD=NEW options into a dict.
     rename = {}
     for item in args.rename:
         if "=" not in item:
@@ -228,6 +256,7 @@ def cmd_compare(args) -> int:
         rename[old] = new
     c = compare_files(Path(args.a), Path(args.b), rename)
     print(format_report(c, Path(args.a).name, Path(args.b).name))
+    # Optionally save the regions found in only one of the two masks.
     if args.out_prefix:
         write_mask_bed(f"{args.out_prefix}.only_a.bed", c.only_a)
         write_mask_bed(f"{args.out_prefix}.only_b.bed", c.only_b)
@@ -235,6 +264,7 @@ def cmd_compare(args) -> int:
 
 
 def cmd_download_db(args) -> int:
+    """`refmasker download-db`: fetch the geNomad database with geNomad's own downloader."""
     from refmasker import external
 
     if external.missing_tools(["genomad"]):
@@ -248,6 +278,10 @@ def cmd_download_db(args) -> int:
 
 
 def cmd_check(_args) -> int:
+    """`refmasker check`: list each category's tools and versions, and the geNomad database.
+
+    Returns 1 if a tool needed by a default category is missing.
+    """
     from refmasker import external
     from refmasker.detectors import categories
     from refmasker.detectors.prophages import genomad_db, genomad_db_version
@@ -255,10 +289,12 @@ def cmd_check(_args) -> int:
     print(f"refmasker {__version__}")
     missing_default = []
     for c in categories().values():
+        # List both prophage callers: c.tools() needs the run options to pick one.
         tools = ["genomad", "PhiSpy.py"] if c.name == "prophage" else c.tools(None)
         for t in tools:
             v = external.tool_version(t)
             print(f"  {c.name:14} {t:12} {'NOT FOUND' if v == 'not found' else v}")
+            # PhiSpy is optional (geNomad is the default caller), so it does not fail the check.
             if v == "not found" and c.default and t != "PhiSpy.py":
                 missing_default.append(t)
     db = genomad_db(None)
@@ -273,20 +309,27 @@ def cmd_check(_args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Entry point of the `refmasker` command; returns the exit code.
+
+    0 = success, 1 = no subcommand given or `check` found missing tools, 2 = error.
+    """
     parser = build_parser()
     args = parser.parse_args(argv)
     if not args.command:
         parser.print_help()
         return 1
     setup_logging(getattr(args, "quiet", False))
+    # Which function runs each subcommand.
     handlers = {
         "run": cmd_run,
         "compare": cmd_compare,
         "download-db": cmd_download_db,
         "check": cmd_check,
     }
+    # Expected problems (bad input, unsafe or existing output folder, missing or failing tools;
+    # ToolError is a RuntimeError) are logged as one clear message instead of a traceback.
     try:
         return handlers[args.command](args)
-    except (ValueError, FileExistsError, FileNotFoundError, RuntimeError) as exc:
+    except (ValueError, FileExistsError, FileNotFoundError, PermissionError, RuntimeError) as exc:
         logging.getLogger("refmasker").error("%s", exc)
         return 2

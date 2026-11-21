@@ -22,6 +22,8 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class Context:
+    """Inputs shared by every detector."""
+
     fasta: Path  # normalised FASTA (ID-only headers)
     records: list[Record]
     workdir: Path
@@ -32,11 +34,18 @@ class Context:
 
     @property
     def lengths(self) -> dict[str, int]:
+        """Length of each record, by ID."""
         return {r.id: r.length for r in self.records}
 
 
 @dataclass
 class Result:
+    """What a detector returns.
+
+    `notes` are shown in the report; `extra` carries data for later steps (the repeat
+    detector passes its raw alignments on for the sensitivity table).
+    """
+
     regions: list[Region] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
@@ -44,6 +53,13 @@ class Result:
 
 @dataclass
 class Category:
+    """A mask category and how to detect it.
+
+    `label` is the name shown in reports, `default` whether it is masked without being asked
+    for, `tools` a function giving the external programs it needs (from the CLI options), and
+    `run` its detector function.
+    """
+
     name: str
     label: str
     default: bool
@@ -53,6 +69,9 @@ class Category:
 
 
 def _registry() -> dict[str, Category]:
+    """Build the table of categories. Their order here sets the order in all outputs."""
+    # Imported here, not at the top: the detector modules import Context and Result from this
+    # module, so a top-level import would be circular.
     from refmasker.detectors import (
         crispr,
         genes,
@@ -142,14 +161,17 @@ def _registry() -> dict[str, Category]:
     return {c.name: c for c in cats}
 
 
+# Filled on first use by categories() and reused afterwards.
 CATEGORIES: dict[str, Category] = {}
 
 
 def categories() -> dict[str, Category]:
+    """All categories, keyed by name, in registry order."""
     if not CATEGORIES:
         CATEGORIES.update(_registry())
     return CATEGORIES
 
 
 def default_categories() -> list[str]:
+    """Names of the categories masked when --categories is not given."""
     return [c.name for c in categories().values() if c.default]

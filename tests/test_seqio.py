@@ -26,6 +26,12 @@ def test_read_fasta_errors(tmp_path, text):
         read_fasta(p)
 
 
+def test_read_fasta_size_limit(genome):
+    assert len(read_fasta(genome, max_bp=100_000)) == 2
+    with pytest.raises(ValueError, match="--max-genome-mb"):
+        read_fasta(genome, max_bp=1_000)
+
+
 def test_write_fasta_strips_descriptions(tmp_path, genome):
     out = tmp_path / "o.fa"
     write_fasta(out, read_fasta(genome))

@@ -8,7 +8,10 @@ from pathlib import Path
 
 from refmasker.report.plots import colour
 from refmasker.report.text import SNIPPY_USAGE, WHY, fmt_bp
+from refmasker.safeio import open_replacing
 
+# Page styles. Dark mode uses the prefers-color-scheme media query; figures keep a white
+# background there because matplotlib draws them with dark text.
 CSS = """
 :root { --bg:#ffffff; --fg:#1d1d1f; --muted:#666; --line:#e3e3e3; --panel:#f6f7f8;
         --warn-bg:#fff6e0; --warn-line:#e0b040; --accent:#0072B2; }
@@ -51,6 +54,8 @@ dt { color:var(--muted); }
 dd { margin:0; word-break:break-all; }
 """
 
+# Scripts for the region table: click a column heading to sort, and filter rows by text or
+# category. Numeric cells sort by their data-v attribute (the raw number), not the shown text.
 JS = """
 function sortTable(th) {
   const table = th.closest('table'), tbody = table.tBodies[0];
@@ -83,6 +88,7 @@ function filterRegions() {
 
 
 def _svg(path: str) -> str:
+    """Read an SVG file and strip its XML and DOCTYPE headers so it can be inlined in HTML."""
     text = Path(path).read_text()
     text = re.sub(r"<\?xml[^>]*\?>", "", text)
     text = re.sub(r"<!DOCTYPE[^>]*>", "", text, flags=re.S)
@@ -90,16 +96,23 @@ def _svg(path: str) -> str:
 
 
 def _sw(cat: str) -> str:
+    """A small square in the category's colour (the same colour as in the figures)."""
     return f'<span class="swatch" style="background:{colour(cat)}"></span>'
 
 
 def write_html(data, path: Path, svgs: list[str], labels: dict[str, str]) -> None:
+    """Write report.html, a single self-contained page, section by section.
+
+    Every value taken from the data is HTML-escaped, so names cannot break the page.
+    """
     e = escape
     total = next(r for r in data.summary if r.record == "ALL" and r.category == "total")
     ref_name = data.reference.name
+    # The page is built as a list of strings and joined once at the end.
     parts: list[str] = []
     add = parts.append
 
+    # Header and summary tiles
     add("<!doctype html><html lang='en'><head><meta charset='utf-8'>")
     add("<meta name='viewport' content='width=device-width, initial-scale=1'>")
     add(f"<title>refmasker: {e(ref_name)}</title><style>{CSS}</style></head><body><main>")
@@ -120,9 +133,11 @@ def write_html(data, path: Path, svgs: list[str], labels: dict[str, str]) -> Non
         add(f"<div class='tile'><div class='k'>{k}</div><div class='v'>{v}</div></div>")
     add("</div>")
 
+    # Warnings (e.g. draft assembly, N bases, mismatched annotation names)
     for w in data.warnings:
         add(f"<div class='warn'><strong>Warning.</strong> {e(w)}</div>")
 
+    # Figures, inlined as SVG
     add("<h2>Where the masked regions are</h2>")
     add(
         "<p>The top track shows every base in <code>mask.bed</code>; the tracks below show each "
@@ -131,6 +146,7 @@ def write_html(data, path: Path, svgs: list[str], labels: dict[str, str]) -> Non
     for s in svgs:
         add(f"<div class='figure'>{_svg(s)}</div>")
 
+    # Amount masked per category, and per record when there is more than one
     add("<h2>How much is masked</h2>")
     add(
         "<p>Each category's figure counts bases once even where its own regions overlap. "
@@ -142,6 +158,7 @@ def write_html(data, path: Path, svgs: list[str], labels: dict[str, str]) -> Non
         add("<h3>By record</h3>")
         add(_record_table(data))
 
+    # Reason and detecting tool(s) for each category, plus any notes from its detector
     add("<h2>Why each category is masked</h2><table><thead><tr><th>Category</th>")
     add("<th>Detected by</th><th>Reason</th></tr></thead><tbody>")
     for cat in data.categories:
@@ -153,6 +170,7 @@ def write_html(data, path: Path, svgs: list[str], labels: dict[str, str]) -> Non
         )
     add("</tbody></table>")
 
+    # Repeat threshold sensitivity grid (only when repeats were masked)
     if data.sensitivity:
         add("<h2>Repeat threshold sensitivity</h2>")
         add(
@@ -174,6 +192,7 @@ def write_html(data, path: Path, svgs: list[str], labels: dict[str, str]) -> Non
             )
         add("</tbody></table>")
 
+    # Every region, with a search box and a category filter
     add("<h2>All regions</h2>")
     add(
         "<p>Every region before merging, after padding. Click a column heading to sort. "
@@ -199,6 +218,7 @@ def write_html(data, path: Path, svgs: list[str], labels: dict[str, str]) -> Non
     ]:
         add(f"<th{' class=n' if n else ''} onclick='sortTable(this)'>{h}</th>")
     add("</tr></thead><tbody>")
+    # Starts are shown 1-based (as in genome browsers); data-v holds the values to sort by.
     for r in data.regions:
         add(
             f"<tr data-cat='{e(r.category)}'><td>{e(r.chrom)}</td>"
@@ -212,6 +232,7 @@ def write_html(data, path: Path, svgs: list[str], labels: dict[str, str]) -> Non
     add("</tbody></table></div>")
     add("<p class='sub'>Start is 1-based here; the BED files are 0-based.</p>")
 
+    # How to use the mask with snippy
     add("<h2>Using the mask</h2>")
     add(f"<pre>{e(SNIPPY_USAGE)}</pre>")
     add(
@@ -219,6 +240,7 @@ def write_html(data, path: Path, svgs: list[str], labels: dict[str, str]) -> Non
         "use the same reference FASTA for snippy.</p>"
     )
 
+    # Run details for provenance: inputs, checksums, command, parameters, versions
     add("<h2>Run details</h2><dl>")
     details = [
         ("Reference", str(data.reference)),
@@ -239,10 +261,12 @@ def write_html(data, path: Path, svgs: list[str], labels: dict[str, str]) -> Non
         add(f"<dt>{e(k)}</dt><dd>{e(v)}</dd>")
     add("</dl>")
     add(f"<script>{JS}</script></main></body></html>")
-    path.write_text("\n".join(parts))
+    with open_replacing(path) as fh:
+        fh.write("\n".join(parts))
 
 
 def _summary_table(data, labels, record: str) -> str:
+    """HTML table of bp and regions masked per category for one record ('ALL' = genome)."""
     rows = [r for r in data.summary if r.record == record]
     out = [
         "<table><thead><tr><th>Category</th><th class='n'>Regions</th>"
@@ -262,6 +286,7 @@ def _summary_table(data, labels, record: str) -> str:
 
 
 def _record_table(data) -> str:
+    """HTML table of the total masked on each record, marking which records are plasmids."""
     rows = [r for r in data.summary if r.record != "ALL" and r.category == "total"]
     plasmids = set(data.plasmids)
     out = [

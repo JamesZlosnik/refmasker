@@ -1,0 +1,7 @@
+# Exact versions CI installs, matching environment.yml. pyproject.toml keeps minimum versions so
+# refmasker can be installed next to other packages; CI tests against these pinned ones.
+# Update together with environment.yml.
+biopython==1.88
+matplotlib==3.11.2
+pytest==9.2.0
+ruff==0.17.5

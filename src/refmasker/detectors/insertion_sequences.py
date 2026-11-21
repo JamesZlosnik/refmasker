@@ -24,7 +24,9 @@ def parse_isescan_tsv(path: Path, include_partial: bool = False) -> list[Region]
     with open(path) as fh:
         reader = csv.DictReader(fh, delimiter="\t")
         for row in reader:
+            # Strip stray whitespace from column names and values.
             row = {k.strip(): (v or "").strip() for k, v in row.items() if k}
+            # Skip rows without usable coordinates.
             try:
                 s, e = int(row["isBegin"]), int(row["isEnd"])
             except (KeyError, ValueError):
@@ -35,11 +37,17 @@ def parse_isescan_tsv(path: Path, include_partial: bool = False) -> list[Region]
             kind = {"c": "complete", "p": "partial"}.get(row.get("type", ""), "")
             if kind:
                 name = f"{name} ({kind})"
+            # Order the coordinates in case begin > end, and convert to BED (0-based start).
             regions.append(Region(row["seqID"], min(s, e) - 1, max(s, e), "is", "ISEScan", name))
     return regions
 
 
 def find_isescan_table(outdir: Path) -> Path | None:
+    """Find ISEScan's per-genome results table under `outdir`, or None if there is none.
+
+    ISEScan writes into subfolders that depend on the input file's path, so look for the .tsv
+    whose header has the expected columns rather than a fixed file name.
+    """
     for p in sorted(outdir.rglob("*.tsv")):
         with open(p) as fh:
             header = fh.readline()
@@ -49,6 +57,7 @@ def find_isescan_table(outdir: Path) -> Path | None:
 
 
 def annotation_regions(features: list[Feature]) -> list[Region]:
+    """Regions for annotated mobile elements and transposase/IS genes (see Feature.is_mobile)."""
     regions = []
     for f in features:
         if f.is_mobile:
@@ -60,9 +69,14 @@ def annotation_regions(features: list[Feature]) -> list[Region]:
 
 
 def detect(ctx: Context) -> Result:
+    """Run ISEScan and, with an annotation, add its transposase/IS features.
+
+    The two sources often find the same elements; overlaps are merged when mask.bed is built.
+    """
     wd = ctx.workdir / "isescan"
     wd.mkdir(parents=True, exist_ok=True)
     out = wd / "out"
+    # Absolute paths, because ISEScan runs with work/isescan as its working directory.
     external.run(
         [
             "isescan.py",
