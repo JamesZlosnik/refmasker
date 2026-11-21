@@ -36,8 +36,10 @@ def write_reports(data, outdir: Path, formats: set[str]) -> None:
         log.info("No report formats requested")
         return
     labels = {c.name: c.label for c in categories().values()}
+    # A new folder: prepare_outdir deleted any old one, and mkdir fails if something
+    # (e.g. a planted link) has appeared in its place since.
     figdir = outdir / "figures"
-    figdir.mkdir(exist_ok=True)
+    figdir.mkdir()
 
     lin = plots.linear_figure(data, labels)
     circ = plots.circular_figure(data, labels)

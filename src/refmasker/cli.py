@@ -156,7 +156,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--threads",
         type=int,
         default=None,
-        help="threads to use [default: the job's allocation under SLURM/SGE, otherwise 1]",
+        help="threads to use [default: the job's allocation under SLURM/SGE/PBS, otherwise 1]",
+    )
+    g.add_argument(
+        "--max-genome-mb",
+        type=_positive_int,
+        default=50,
+        help="refuse a reference with more sequence than this (Mb), so a wrong input such as a "
+        "metagenome assembly fails at once instead of using a lot of memory and CPU; 0 = no limit",
     )
     g.add_argument(
         "--keep-work", action="store_true", help="keep intermediate tool outputs in OUTDIR/work"
@@ -319,10 +326,10 @@ def main(argv: list[str] | None = None) -> int:
         "download-db": cmd_download_db,
         "check": cmd_check,
     }
-    # Expected problems (bad input, existing output folder, missing or failing tools; ToolError
-    # is a RuntimeError) are logged as one clear message instead of a Python traceback.
+    # Expected problems (bad input, unsafe or existing output folder, missing or failing tools;
+    # ToolError is a RuntimeError) are logged as one clear message instead of a traceback.
     try:
         return handlers[args.command](args)
-    except (ValueError, FileExistsError, FileNotFoundError, RuntimeError) as exc:
+    except (ValueError, FileExistsError, FileNotFoundError, PermissionError, RuntimeError) as exc:
         logging.getLogger("refmasker").error("%s", exc)
         return 2

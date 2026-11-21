@@ -32,6 +32,13 @@ def test_show_coords_drops_self_hit_and_flips_reverse():
     assert (rev.start2, rev.end2) == (3883549, 3884921)
 
 
+def test_show_coords_from_open_file(tmp_path):
+    path = tmp_path / "self.coords.tsv"
+    path.write_text(SHOW_COORDS)
+    with open(path) as fh:
+        assert parse_show_coords(fh) == parse_show_coords(SHOW_COORDS)
+
+
 def test_repeat_thresholds_and_both_copies():
     hits = parse_show_coords(SHOW_COORDS)
     regions = hits_to_regions(hits, 200, 90)

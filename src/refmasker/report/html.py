@@ -8,6 +8,7 @@ from pathlib import Path
 
 from refmasker.report.plots import colour
 from refmasker.report.text import SNIPPY_USAGE, WHY, fmt_bp
+from refmasker.safeio import open_replacing
 
 # Page styles. Dark mode uses the prefers-color-scheme media query; figures keep a white
 # background there because matplotlib draws them with dark text.
@@ -260,7 +261,8 @@ def write_html(data, path: Path, svgs: list[str], labels: dict[str, str]) -> Non
         add(f"<dt>{e(k)}</dt><dd>{e(v)}</dd>")
     add("</dl>")
     add(f"<script>{JS}</script></main></body></html>")
-    path.write_text("\n".join(parts))
+    with open_replacing(path) as fh:
+        fh.write("\n".join(parts))
 
 
 def _summary_table(data, labels, record: str) -> str:

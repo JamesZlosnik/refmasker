@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
 from refmasker.report.text import SNIPPY_USAGE, WHY
+from refmasker.safeio import open_replacing
 
 A4 = (8.27, 11.69)  # page size in inches (matplotlib figure sizes are in inches)
 ROWS_PER_PAGE = 48  # region table rows that fit on one page
@@ -74,7 +75,7 @@ def write_pdf(data, path: Path, figures, labels: dict[str, str]) -> None:
     over as many pages as needed) and run details.
     """
     total = next(r for r in data.summary if r.record == "ALL" and r.category == "total")
-    with PdfPages(path) as pdf:
+    with open_replacing(path, "wb") as fh, PdfPages(fh) as pdf:
         # Page 1: headline numbers, warnings, per-category amounts, reasons and snippy usage.
         lines: list[tuple[str, dict]] = [
             (

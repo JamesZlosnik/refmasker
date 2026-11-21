@@ -12,10 +12,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
+from refmasker.safeio import open_replacing  # noqa: E402
+
 # svg.fonttype "none" keeps text as real text in SVGs (searchable, smaller files).
+# text.parse_math off: a '$' in a record ID is drawn as-is instead of being parsed as maths,
+# which garbles the name or, for IDs like 'ctg$\x$1', crashes the report.
 plt.rcParams.update(
     {
         "svg.fonttype": "none",
+        "text.parse_math": False,
         "font.size": 9,
         "axes.spines.top": False,
         "axes.spines.right": False,
@@ -217,10 +222,12 @@ def _nice_step(span: float) -> float:
 def save(fig, base, formats: set[str]) -> dict[str, str]:
     """Save `fig` as SVG always (embedded in the HTML) and PNG when asked."""
     paths = {}
-    fig.savefig(f"{base}.svg", bbox_inches="tight")
+    with open_replacing(f"{base}.svg", "wb") as fh:
+        fig.savefig(fh, format="svg", bbox_inches="tight")
     paths["svg"] = f"{base}.svg"
     if "png" in formats:
-        fig.savefig(f"{base}.png", dpi=200, bbox_inches="tight")
+        with open_replacing(f"{base}.png", "wb") as fh:
+            fig.savefig(fh, format="png", dpi=200, bbox_inches="tight")
         paths["png"] = f"{base}.png"
     return paths
 

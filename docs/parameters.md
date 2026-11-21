@@ -22,9 +22,10 @@
 | `--plasmid-ids LIST` | none | Record IDs to treat as plasmids, besides headers mentioning "plasmid" |
 | `--pad N` | 0 | Extend every region by N bp each side (clipped at sequence ends) |
 | `--formats LIST` | `html,pdf,png` | Report formats; `none` writes only the BED and TSV files |
-| `--threads N` | 1 or scheduler allocation | Threads for external tools. Without `--threads`, uses `SLURM_CPUS_PER_TASK`, `NSLOTS` or `PBS_NUM_PPN` if set, otherwise 1 |
-| `--keep-work` | off | Keep raw tool outputs in `OUTDIR/work` |
-| `--force` | off | Overwrite a previous refmasker output folder. Refuses any non-empty folder without `run_info.json` or `refmasker.log`, so it cannot clear an unrelated folder (such as a Nextflow `work/`) |
+| `--threads N` | 1 or scheduler allocation | Threads for external tools. Without `--threads`, uses `SLURM_CPUS_PER_TASK`, `SLURM_CPUS_ON_NODE`, `NSLOTS`, `NCPUS` or `PBS_NUM_PPN` (first one set), otherwise 1. Warns if it is more than the job's allocation |
+| `--max-genome-mb N` | 50 | Refuse a reference with more than N Mb of sequence; 0 = no limit |
+| `--keep-work` | off | Keep raw tool outputs in `OUTDIR/work`. Otherwise `work/` is deleted, even after a failed run (failed runs keep the tool logs in `OUTDIR/logs`) |
+| `--force` | off | Overwrite a previous refmasker output folder. Refuses any non-empty folder without `run_info.json` or `refmasker.log`, so it cannot clear an unrelated folder (such as a Nextflow `work/`), and any folder containing symbolic links |
 | `--redact` | off | For sharing reports: HTML, PDF and `run_info.json` show input file names instead of full paths and leave out FASTA header descriptions. Record IDs stay (the mask needs them); `refmasker.log` keeps full paths |
 | `-q, --quiet` | off | Print only warnings and errors (the log file still gets everything) |
 
@@ -38,7 +39,10 @@ should decide deliberately which side of that line you want.
 ## Thread use
 
 All external tools get the same thread count. refmasker also limits OpenMP/BLAS thread pools to
-that number, so numerical libraries don't start one thread per core. ISEScan is by far the
+that number, so numerical libraries don't start one thread per core, and sets
+`TF_NUM_INTRAOP_THREADS` (TensorFlow, used by geNomad) and `-XX:ActiveProcessorCount` in
+`JAVA_TOOL_OPTIONS` (Java, used by MinCED) to match. Whether geNomad and MinCED stay within the
+limit has not yet been measured on a cluster; check with `seff` or your scheduler's job report. ISEScan is by far the
 slowest step: 12 minutes for a 5.2 Mb *B. fragilis* genome on 2 threads, and 7 minutes for H37Rv
 on 4. nucmer, barrnap, dustmasker and MinCED each take seconds. geNomad's run time is not yet
 measured (see [validation.md](validation.md)).

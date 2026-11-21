@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
@@ -31,6 +33,24 @@ class ToolError(RuntimeError):
 def missing_tools(tools: list[str]) -> list[str]:
     """Return the tools in `tools` that are not on PATH."""
     return [t for t in tools if shutil.which(t) is None]
+
+
+def writable_by_others(path: str | Path) -> bool:
+    """True if any user could change `path` or the folder holding it (e.g. swap a program).
+
+    World-writable folders with the sticky bit (like /tmp) are not counted: there, users
+    cannot rename or delete each other's files.
+    """
+    p = Path(path)
+    for item in (p, p.parent):
+        try:
+            mode = os.stat(item).st_mode
+        except OSError:
+            continue
+        sticky_dir = stat.S_ISDIR(mode) and mode & stat.S_ISVTX
+        if mode & stat.S_IWOTH and not sticky_dir:
+            return True
+    return False
 
 
 def tool_version(tool: str) -> str:

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from refmasker.regions import Region, merge, union_bp
+from refmasker.safeio import open_replacing
 from refmasker.seqio import Record
 
 # Labels in summary.tsv for the genome-wide rows and for the all-categories total.
@@ -51,7 +52,7 @@ def summarise(
 
 def write_summary_tsv(path: str | Path, rows: list[SummaryRow]) -> None:
     """Write the summary rows as a tab-separated table with a header line."""
-    with open(path, "w", newline="") as fh:
+    with open_replacing(path, newline="") as fh:
         w = csv.writer(fh, delimiter="\t", lineterminator="\n")
         w.writerow(["record", "category", "regions", "bp_masked", "record_length", "pct_masked"])
         for r in rows:

@@ -10,6 +10,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from refmasker.safeio import open_replacing
+
 
 @dataclass(frozen=True)
 class Region:
@@ -162,7 +164,7 @@ def read_bed(path: str | Path, category: str = "user", source: str = "bed") -> l
 
 def write_mask_bed(path: str | Path, merged: Iterable[MergedRegion]) -> None:
     """Write the snippy-ready BED: 3 columns, no header (snippy-core rejects header lines)."""
-    with open(path, "w") as fh:
+    with open_replacing(path) as fh:
         for m in merged:
             fh.write(f"{m.chrom}\t{m.start}\t{m.end}\n")
 
@@ -176,7 +178,7 @@ def write_annotated_bed(path: str | Path, regions: Iterable[Region]) -> None:
 
     Empty fields are written as '.', the usual BED placeholder.
     """
-    with open(path, "w") as fh:
+    with open_replacing(path) as fh:
         fh.write("#" + "\t".join(ANNOTATED_HEADER) + "\n")
         for r in regions:
             fh.write(

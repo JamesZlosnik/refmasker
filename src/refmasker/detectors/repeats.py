@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from refmasker import external
@@ -30,16 +31,20 @@ class RepeatHit:
     identity: float
 
 
-def parse_show_coords(text: str) -> list[RepeatHit]:
+def parse_show_coords(text: str | Iterable[str]) -> list[RepeatHit]:
     """Parse `show-coords -T -H -r -c -l` output, dropping each sequence's self-hit.
+
+    `text` is the whole output as one string, or an iterable of lines such as an open file
+    (so a large output is not read into memory at once).
 
     -T tab-separated, -H no header, -r sorted by reference, -c coverage columns, -l length
     columns. The 13 columns are S1 E1 S2 E2 LEN1 LEN2 %IDY LENR LENQ COVR COVQ TAG1 TAG2,
     with 1-based inclusive coordinates.
     """
     hits = []
-    for line in text.splitlines():
-        cols = line.split("\t")
+    lines = text.splitlines() if isinstance(text, str) else text
+    for line in lines:
+        cols = line.rstrip("\r\n").split("\t")
         if len(cols) < 13:
             continue
         s1, e1, s2, e2 = (int(x) for x in cols[0:4])
@@ -135,7 +140,8 @@ def detect(ctx: Context) -> Result:
         "show-coords",
         stdout_path=coords,
     )
-    hits = parse_show_coords(coords.read_text())
+    with open(coords) as fh:
+        hits = parse_show_coords(fh)
     regions = hits_to_regions(hits, opts.repeat_min_len, opts.repeat_min_id)
     log.info(
         "repeats: %d alignments, %d regions at >=%d bp and >=%.0f%% identity",

@@ -53,17 +53,33 @@ runs.
 
 ### Shared HPC systems
 
-- refmasker uses 1 thread unless told otherwise, or the allocation from SLURM (`SLURM_CPUS_PER_TASK`)
-  or SGE (`NSLOTS`). Run it inside a job, not on a login node.
-- Output files get your umask's permissions; on many clusters that makes them readable by other
-  users. For sensitive references, run with a private umask:
+- Run it inside a job, not on a login node. refmasker uses 1 thread unless told otherwise, or the
+  job's allocation from SLURM (`SLURM_CPUS_PER_TASK`, else `SLURM_CPUS_ON_NODE`), SGE (`NSLOTS`) or
+  PBS (`NCPUS`, `PBS_NUM_PPN`), and warns if `--threads` asks for more than the job was given. It
+  also caps the thread pools of OpenMP/BLAS, TensorFlow (geNomad) and Java (MinCED). Memory is not
+  capped, and geNomad and nucmer can need several GB.
+- References over 50 Mb are refused (`--max-genome-mb`), so a wrong input such as a metagenome
+  assembly fails at once instead of filling memory.
+- A new output folder gets no access for other users. Your group can read it if your umask allows
+  that; for sensitive references keep it private:
 
   ```bash
-  umask 077      # only you; or umask 027 to share with your group
+  umask 077      # only you; or umask 027 to let your group read the results
   refmasker run ref.fna -o ref_mask
   ```
 
-- To share reports without revealing your folder layout or FASTA header text, add `--redact`.
+- refmasker only writes into an output folder that you own and that not every user can write to,
+  and `--force` refuses a folder containing symbolic links. Each output file is written to a
+  temporary file and then moved into place, so a link someone planted is replaced, not followed.
+- `OUTDIR/work` holds a copy of the reference. Only you can read it, and it is deleted at the end
+  of every run, including failed ones (unless `--keep-work`); after a failure the tools' logs are
+  kept in `OUTDIR/logs`.
+- `run_info.json` and `refmasker.log` record the full path of every tool used, and refmasker warns
+  if a tool or the geNomad database is somewhere any user can modify.
+- To share reports without revealing your folder layout or FASTA header text, add `--redact`. It
+  covers the HTML and PDF reports and `run_info.json` only: `refmasker.log` keeps full paths, and
+  record IDs are kept because `mask.bed` needs them. Share the report files rather than the whole
+  folder, and rename records first if their IDs contain isolate or patient identifiers.
 - If your home folder is read-only or over quota on compute nodes, matplotlib may warn that it cannot
   write its cache; set `export MPLCONFIGDIR="$TMPDIR/mpl"` in the job script.
 
@@ -73,6 +89,13 @@ The default prophage caller, geNomad, needs its database (about 1.4 GB, download
 refmasker download-db /path/to/dbs
 export REFMASKER_GENOMAD_DB=/path/to/dbs/genomad_db     # add to ~/.bashrc
 ```
+
+On a shared cluster, download it once into a group location and make it read-only
+(`chmod -R a-w /path/to/dbs/genomad_db`), so everyone uses the same copy and nobody can change it.
+`run_info.json` records the version from the database's `version.txt`. `refmasker download-db`
+uses geNomad's own downloader and does not check a checksum. If you need one, download the archive
+yourself from the Zenodo record linked in the geNomad documentation, compare its MD5 with the one
+Zenodo lists, then extract it.
 
 If you don't want the download, use `--phage-tool phispy` (needs a GenBank `--annotation`) or leave
 prophages out with `--categories repeats,is,rrna`.
@@ -137,9 +160,10 @@ Full list: `refmasker run --help` and [docs/parameters.md](docs/parameters.md).
 
 ## Running on a shared server
 
-refmasker uses **one thread by default**. Inside a SLURM or SGE job it uses the cores the job was
-given (`SLURM_CPUS_PER_TASK` / `NSLOTS`). It never grabs every core on the machine, so it is safe to
-run on a head node. Ask for more with `--threads N`. ISEScan is the slowest step: about
+refmasker uses **one thread by default**. Inside a SLURM, SGE or PBS job it uses the cores the job
+was given. It never grabs every core on the machine, but its memory use is not capped (geNomad and
+nucmer can need several GB), so on a cluster submit it as a job rather than running it on a login
+node. Ask for more threads with `--threads N`. ISEScan is the slowest step: about
 7 minutes for H37Rv on 4 threads, 12 minutes for a 5.2 Mb genome on 2.
 
 ## Validation

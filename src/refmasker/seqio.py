@@ -32,15 +32,17 @@ class Record:
         return len(self.seq)
 
 
-def read_fasta(path: str | Path) -> list[Record]:
+def read_fasta(path: str | Path, max_bp: int | None = None) -> list[Record]:
     """Read every record of a (possibly gzipped) FASTA file into memory.
 
     Raises ValueError for input that would break later steps: no records, text before the
-    first header, empty or duplicate IDs, or records with no sequence.
+    first header, empty or duplicate IDs, or records with no sequence. With `max_bp`, also
+    stop as soon as the total sequence exceeds it, before the rest of the file is loaded.
     """
     records: list[Record] = []
     header = None
     chunks: list[str] = []  # sequence lines of the current record, joined once at the end
+    total_bp = 0
     with open_text(path) as fh:
         for line in fh:
             line = line.rstrip("\r\n")
@@ -51,7 +53,14 @@ def read_fasta(path: str | Path) -> list[Record]:
                 header = line[1:].strip()
                 chunks = []
             elif header is not None:
-                chunks.append(line.strip())
+                seq_line = line.strip()
+                chunks.append(seq_line)
+                total_bp += len(seq_line)
+                if max_bp is not None and total_bp > max_bp:
+                    raise ValueError(
+                        f"{path}: more than {max_bp:,} bp of sequence. refmasker is meant for one "
+                        "bacterial genome; if this input is intended, raise --max-genome-mb."
+                    )
             elif line.strip():
                 # Non-blank text before the first header: this is not a FASTA file.
                 raise ValueError(f"{path}: does not look like FASTA (no '>' header line)")

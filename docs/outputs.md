@@ -1,6 +1,8 @@
 # Outputs
 
-Everything goes into the `-o` folder.
+Everything goes into the `-o` folder. A new folder gets no access for other users (group access
+follows your umask), and refmasker refuses an existing folder that belongs to someone else, that
+any user can write to, or (with `--force`) that contains symbolic links.
 
 ## mask.bed
 
@@ -76,10 +78,11 @@ six records (draft assemblies) are drawn with contigs placed end to end.
 
 Machine-readable run record: refmasker version, command, reference path with MD5 and SHA-256,
 records (ID, length and FASTA header description), plasmid records, parameters, tool versions
-(and the geNomad database version when prophages are called), total bp and % masked, warnings.
+(and the geNomad database version when prophages are called), full paths of the tools used
+(`tool_paths`), total bp and % masked, warnings.
 
 With `--redact`, paths are reduced to file names, header descriptions are left out and
-`"redacted": true` is recorded. Record IDs are always kept: if your FASTA IDs are themselves
+`"redacted": true` is recorded; `tool_paths` is `null`. Record IDs are always kept: if your FASTA IDs are themselves
 sample identifiers, rename them before running.
 
 ## refmasker.log
@@ -87,3 +90,8 @@ sample identifiers, rename them before running.
 The full log, including every external command, with full paths even under `--redact`: don't
 share it if paths are sensitive. With `--keep-work`, each tool's stderr is in
 `work/<tool>/<tool>.log` next to its raw output.
+
+## logs/
+
+Only after a failed run (without `--keep-work`): the stderr log of each tool that ran, moved out of
+`work/` before it is deleted.
