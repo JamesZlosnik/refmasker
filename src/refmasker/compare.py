@@ -115,9 +115,7 @@ def _as_regions(merged) -> list[Region]:
     return [Region(m.chrom, m.start, m.end) for m in merged]
 
 
-def compare(
-    a: list[Region], b: list[Region], lengths: dict[str, int] | None = None
-) -> Comparison:
+def compare(a: list[Region], b: list[Region], lengths: dict[str, int] | None = None) -> Comparison:
     """Compare two region sets. Each is merged first, so overlaps within one mask count once.
 
     `lengths` (record id -> bp, from a reference FASTA) is optional and only adds the
@@ -200,9 +198,7 @@ def _warnings(ma: list[Region], mb: list[Region], lengths: dict[str, int]) -> li
                 f"Not in the reference FASTA: {_show(unknown)}. These records have no length, "
                 "so they are drawn and reported without percentages."
             )
-        past = sorted(
-            {r.chrom for r in ma + mb if r.chrom in lengths and r.end > lengths[r.chrom]}
-        )
+        past = sorted({r.chrom for r in ma + mb if r.chrom in lengths and r.end > lengths[r.chrom]})
         if past:
             out.append(
                 f"Regions run past the end of {_show(set(past))} in the reference FASTA, so "

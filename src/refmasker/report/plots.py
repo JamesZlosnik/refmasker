@@ -261,9 +261,7 @@ def compare_bar_figure(c, name_a: str, name_b: str):
         [(name_b, c.bp_only_b, "only_b"), (name_a, c.bp_only_a, "only_a")]
     ):
         ax.barh(i, c.bp_both / div, height=0.5, color=COMPARE_COLOURS["both"])
-        ax.barh(
-            i, unique / div, left=c.bp_both / div, height=0.5, color=COMPARE_COLOURS[key]
-        )
+        ax.barh(i, unique / div, left=c.bp_both / div, height=0.5, color=COMPARE_COLOURS[key])
         total = c.bp_both + unique
         ax.text(
             total / div,
