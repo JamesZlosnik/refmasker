@@ -213,6 +213,14 @@ def build_parser() -> argparse.ArgumentParser:
         "length of each sequence instead of to the last masked base",
     )
     c.add_argument(
+        "--annotated-a",
+        metavar="BED",
+        help="mask.annotated.bed for A, which carries the mask categories a plain mask.bed "
+        "does not. By default refmasker uses A itself if it is an annotated BED, else a "
+        "mask.annotated.bed sitting next to it. Pass 'none' to ignore it",
+    )
+    c.add_argument("--annotated-b", metavar="BED", help="the same for B")
+    c.add_argument(
         "--formats",
         default="html",
         help="comparison report formats: html, png (figures beside the report), or 'none'",
@@ -301,7 +309,7 @@ def cmd_compare(args) -> int:
     """`refmasker compare`: print overlap statistics for two BED masks and write a report."""
     from datetime import UTC, datetime
 
-    from refmasker.compare import compare_files, format_report
+    from refmasker.compare import annotated_source, compare_files, format_report
     from refmasker.regions import write_mask_bed
     from refmasker.report import parse_formats
 
@@ -319,7 +327,27 @@ def cmd_compare(args) -> int:
         old, new = item.split("=", 1)
         rename[old] = new
     ref = Path(args.ref) if args.ref else None
-    c = compare_files(Path(args.a), Path(args.b), rename, ref)
+    # Where each mask's categories come from, so the report can say what kind of masking
+    # each difference is. Reported either way: this can read a file the user did not name.
+    annotated = {}
+    for side, mask, override in (
+        ("a", args.a, args.annotated_a),
+        ("b", args.b, args.annotated_b),
+    ):
+        source = annotated_source(Path(mask), override)
+        annotated[side] = source
+        if source:
+            log.info("Categories for %s from %s", side.upper(), source)
+        elif override:
+            log.info("Categories for %s switched off (--annotated-%s none)", side.upper(), side)
+        else:
+            log.info(
+                "No categories for %s: %s is a plain BED and no mask.annotated.bed sits "
+                "beside it",
+                side.upper(),
+                mask,
+            )
+    c = compare_files(Path(args.a), Path(args.b), rename, ref, annotated["a"], annotated["b"])
     print(format_report(c, Path(args.a).name, Path(args.b).name))
     # Mismatched sequence names are the usual reason a comparison looks wrong, so they go to
     # the terminal as well as into the report.
@@ -342,6 +370,8 @@ def cmd_compare(args) -> int:
             "path_a": args.a,
             "path_b": args.b,
             "ref": args.ref,
+            "annotated_a": str(annotated["a"]) if annotated["a"] else "",
+            "annotated_b": str(annotated["b"]) if annotated["b"] else "",
             "rename": ", ".join(f"{k}={v}" for k, v in rename.items()),
             "written": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
         }
