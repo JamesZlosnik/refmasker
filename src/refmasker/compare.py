@@ -246,9 +246,7 @@ def _by_category(annotated: list[Region] | None, other: list[Region]) -> list[Ca
     return sorted(rows, key=lambda r: -r.bp_only)
 
 
-def _unique_regions(
-    only: list[Region], annotated: list[Region] | None
-) -> list[UniqueRegion]:
+def _unique_regions(only: list[Region], annotated: list[Region] | None) -> list[UniqueRegion]:
     """Label each region the other mask misses with the categories and names behind it.
 
     Without an annotated BED the labels are empty and the region is still listed.

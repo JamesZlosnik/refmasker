@@ -271,9 +271,7 @@ def test_rename_keeps_the_categories(annotated_masks, tmp_path):
     mask, _ = annotated_masks
     other = tmp_path / "other.bed"
     other.write_text("NC_1\t1000\t3000\n")
-    c = compare_files(
-        mask, other, {"NC_1": "chr1"}, annotated_a=mask.with_suffix(".annotated.bed")
-    )
+    c = compare_files(mask, other, {"NC_1": "chr1"}, annotated_a=mask.with_suffix(".annotated.bed"))
     assert c.bp_both == 2000
     assert {r.category for r in c.categories_a} == {"repeats", "is", "prophage"}
 

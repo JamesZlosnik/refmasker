@@ -342,8 +342,7 @@ def cmd_compare(args) -> int:
             log.info("Categories for %s switched off (--annotated-%s none)", side.upper(), side)
         else:
             log.info(
-                "No categories for %s: %s is a plain BED and no mask.annotated.bed sits "
-                "beside it",
+                "No categories for %s: %s is a plain BED and no mask.annotated.bed sits beside it",
                 side.upper(),
                 mask,
             )
