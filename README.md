@@ -315,11 +315,36 @@ TB mask. Results so far are in [docs/validation.md](docs/validation.md).
 ## Other commands
 
 ```
-refmasker compare a.bed b.bed      bp in common, Jaccard, regions unique to each mask
+refmasker compare a.bed b.bed      compare two masks: summary, plus an HTML report
 refmasker check                    which external tools are installed, and the database
 refmasker download-db DIR          download the geNomad database, then checksum it
 refmasker download-db DIR --verify re-check the database against its checksum manifest
 ```
+
+### Comparing two masks
+
+Use it to see what a new mask changes: refmasker against a published mask, or two of your own
+built with different settings. It prints the summary to the terminal and writes a report named
+after the two files:
+
+```bash
+refmasker compare ST8_mask/mask.bed snippy_tb.bed --ref ST8_ref.fna
+# ... summary table ...
+# Wrote compare_mask_vs_snippy_tb.html
+```
+
+The report shows how much each mask covers and how much they share, a bar of shared against
+unique bases, a track per mask along each sequence (green where they agree, each mask's own
+colour where only it masks), a per-sequence table, and sortable tables of the regions each mask
+has that the other misses entirely. Two kinds of difference are kept apart throughout: bases
+only one mask covers, and whole regions the other mask does not touch at all.
+
+| Option | Effect |
+| --- | --- |
+| `--ref ref.fna` | The reference the masks were built for. Without it the BEDs give no sequence lengths, so percentages of the genome are left out and the figures run to the last masked base rather than to the end of each sequence |
+| `--rename OLD=NEW` | Rename a sequence in both files first, for masks that call the same chromosome different things. Repeatable |
+| `--out-prefix P` | Write `P.compare.html`, `P.only_a.bed` and `P.only_b.bed` instead of naming the report after the inputs |
+| `--formats` | `html` (default), `html,png` to also save the two figures as PNGs, or `none` for the terminal summary only |
 
 ## Citing
 

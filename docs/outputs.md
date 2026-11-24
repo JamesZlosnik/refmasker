@@ -95,3 +95,28 @@ share it if paths are sensitive. With `--keep-work`, each tool's stderr is in
 
 Only after a failed run (without `--keep-work`): the stderr log of each tool that ran, moved out of
 `work/` before it is deleted.
+
+## The comparison report (`refmasker compare`)
+
+`refmasker compare A.bed B.bed` writes one self-contained HTML page, named after the two inputs
+(`compare_<A>_vs_<B>.html`) or after `--out-prefix` (`PREFIX.compare.html`). Both figures are
+inlined, so the page needs no other file; `--formats html,png` also saves them as
+`<base>.bar.png` and `<base>.tracks.png`, and `--formats none` writes nothing at all.
+
+The page holds:
+
+| Section | What it shows |
+| --- | --- |
+| Tiles | bp masked by each mask, bp masked by both, Jaccard index, and what fraction of each mask the other covers. Percentages of the genome only with `--ref` |
+| How much the masks share | One bar per mask, split into bases the other mask also covers and bases unique to it |
+| Where they agree and differ | One row per mask along each sequence: green where both masks cover a stretch, the mask's own colour where only it does |
+| By sequence | Per-sequence bp for each mask, shared bp, bp unique to each, and the Jaccard index for that sequence |
+| Regions the other mask misses entirely | Every merged region of one mask that shares no base with the other, sortable and searchable |
+| Run details | The two paths, the reference, any `--rename`, and when the page was written |
+
+Two differences are reported separately, because they answer different questions: *bases only in
+one mask* is a per-base difference (a region the other mask half covers counts half), while
+*regions the other mask misses entirely* counts whole regions with no overlap at all.
+
+`--out-prefix` additionally writes `PREFIX.only_a.bed` and `PREFIX.only_b.bed`, the merged
+regions each mask has that the other does not touch.

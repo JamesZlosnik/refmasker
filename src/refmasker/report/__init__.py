@@ -6,7 +6,6 @@ import logging
 from pathlib import Path
 
 from refmasker.detectors import categories
-from refmasker.report import html, pdf, plots
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +34,8 @@ def write_reports(data, outdir: Path, formats: set[str]) -> None:
     if not formats:
         log.info("No report formats requested")
         return
+    from refmasker.report import html, pdf, plots
+
     labels = {c.name: c.label for c in categories().values()}
     # A new folder: prepare_outdir deleted any old one, and mkdir fails if something
     # (e.g. a planted link) has appeared in its place since.

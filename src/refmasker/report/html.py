@@ -87,12 +87,16 @@ function filterRegions() {
 """
 
 
-def _svg(path: str) -> str:
-    """Read an SVG file and strip its XML and DOCTYPE headers so it can be inlined in HTML."""
-    text = Path(path).read_text()
+def strip_svg_header(text: str) -> str:
+    """Remove an SVG's XML and DOCTYPE headers so it can be inlined in HTML."""
     text = re.sub(r"<\?xml[^>]*\?>", "", text)
     text = re.sub(r"<!DOCTYPE[^>]*>", "", text, flags=re.S)
     return text.strip()
+
+
+def _svg(path: str) -> str:
+    """Read an SVG file and strip its headers so it can be inlined in HTML."""
+    return strip_svg_header(Path(path).read_text())
 
 
 def _sw(cat: str) -> str:

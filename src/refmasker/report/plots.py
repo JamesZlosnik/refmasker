@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import math
 
 import matplotlib
@@ -219,6 +220,146 @@ def _nice_step(span: float) -> float:
     return 10 * mag
 
 
+# Colours for the comparison figures: the two masks and the bases they agree on. From the
+# same Okabe-Ito palette as the category colours above.
+COMPARE_COLOURS = {"both": "#009E73", "only_a": "#0072B2", "only_b": "#D55E00"}
+
+
+def _compare_layout(rows):
+    """Panels for the comparison figures: (title, span, {chrom: offset}).
+
+    Up to MAX_PANELS sequences get a panel each, longest first; more are drawn end to end in
+    one panel. `span` is the record length when a reference was given, otherwise how far the
+    masks reach (see RecordComparison.span).
+    """
+    rows = [r for r in rows if r.span > 0]
+    if len(rows) <= MAX_PANELS:
+        return [(r.record, r.span, {r.record: 0}) for r in rows]
+    offsets, pos = {}, 0
+    for r in rows:
+        offsets[r.record] = pos
+        pos += r.span
+    return [(f"{len(rows)} sequences, end to end", pos, offsets)]
+
+
+def _compare_segs(regions, offsets):
+    """(start, width) bars for one set of regions, shifted by each record's panel offset."""
+    return [(offsets[r.chrom] + r.start, r.length) for r in regions if r.chrom in offsets]
+
+
+def _trim(name: str, width: int = 26) -> str:
+    """Shorten a file name for a figure label, keeping the end (where the name usually is)."""
+    return name if len(name) <= width else "..." + name[-(width - 3) :]
+
+
+def compare_bar_figure(c, name_a: str, name_b: str):
+    """How much each mask covers, split into bases the other mask shares and bases it does not."""
+    fig, ax = plt.subplots(figsize=(11, 2.0))
+    div, unit = _scale(max(c.bp_a, c.bp_b))
+    # Drawn bottom-up, so B is listed first to put A on top.
+    for i, (name, unique, key) in enumerate(
+        [(name_b, c.bp_only_b, "only_b"), (name_a, c.bp_only_a, "only_a")]
+    ):
+        ax.barh(i, c.bp_both / div, height=0.5, color=COMPARE_COLOURS["both"])
+        ax.barh(i, unique / div, left=c.bp_both / div, height=0.5, color=COMPARE_COLOURS[key])
+        total = c.bp_both + unique
+        ax.text(
+            total / div,
+            i,
+            f"  {total:,} bp",
+            va="center",
+            ha="left",
+            fontsize=8,
+            color="#444444",
+        )
+        ax.text(0, i + 0.42, _trim(name), va="bottom", ha="left", fontsize=8.5)
+    ax.set_yticks([])
+    ax.set_ylim(-0.5, 1.9)
+    # Leave room on the right for the bp labels.
+    ax.set_xlim(0, max(c.bp_a, c.bp_b) / div * 1.22 or 1)
+    ax.set_xlabel(f"Bases masked ({unit})")
+    ax.legend(
+        handles=[
+            Patch(facecolor=COMPARE_COLOURS["both"], label="masked by both"),
+            Patch(facecolor=COMPARE_COLOURS["only_a"], label="only A"),
+            Patch(facecolor=COMPARE_COLOURS["only_b"], label="only B"),
+        ],
+        loc="lower right",
+        ncol=3,
+        frameon=False,
+        fontsize=8,
+    )
+    fig.tight_layout()
+    return fig
+
+
+def compare_tracks_figure(c, name_a: str, name_b: str):
+    """Where the two masks agree and differ along each sequence: one row per mask."""
+    panels = _compare_layout(c.per_record)
+    heights = [1.5 for _ in panels]
+    fig, axes = plt.subplots(
+        len(panels),
+        1,
+        figsize=(11, sum(heights) + 0.8),
+        gridspec_kw={"height_ratios": heights},
+        squeeze=False,
+    )
+    known = bool(c.lengths)
+    for ax, (title, span, offsets) in zip(axes[:, 0], panels, strict=True):
+        div, unit = _scale(span)
+        # Drawn bottom-up, so B is listed first to put A on top. Each row holds the shared
+        # bases plus that mask's own, so the two colours in a row add up to the whole mask.
+        for i, (diff, own) in enumerate([(c.diff_b, "only_b"), (c.diff_a, "only_a")]):
+            ax.broken_barh(
+                _compare_segs(c.shared, offsets),
+                (i + 0.2, 0.6),
+                facecolors=COMPARE_COLOURS["both"],
+            )
+            ax.broken_barh(
+                _compare_segs(diff, offsets), (i + 0.2, 0.6), facecolors=COMPARE_COLOURS[own]
+            )
+        ax.set_yticks([0.5, 1.5])
+        ax.set_yticklabels([f"B: {_trim(name_b, 18)}", f"A: {_trim(name_a, 18)}"])
+        ax.set_ylim(0, 2)
+        ax.set_xlim(0, span)
+        ticks = [t for t in ax.get_xticks() if 0 <= t <= span]
+        ax.set_xticks(ticks)
+        ax.set_xticklabels([f"{t / div:g}" for t in ticks])
+        ax.set_xlabel(
+            f"Position ({unit})"
+            if known
+            else f"Position ({unit}) - axis ends at the last masked base, not the record end"
+        )
+        ax.set_title(f"{title}  ({span:,} bp)", loc="left", fontsize=9)
+        ax.spines["left"].set_visible(False)
+        ax.tick_params(axis="y", length=0)
+        if len(offsets) > 1:
+            for off in sorted(offsets.values())[1:]:
+                ax.axvline(off, color="#cccccc", linewidth=0.3, zorder=0)
+    # Legend above the first panel, so the figure also reads on its own as a saved PNG.
+    axes[0, 0].legend(
+        handles=[
+            Patch(facecolor=COMPARE_COLOURS["both"], label="both"),
+            Patch(facecolor=COMPARE_COLOURS["only_a"], label="only A"),
+            Patch(facecolor=COMPARE_COLOURS["only_b"], label="only B"),
+        ],
+        loc="lower right",
+        bbox_to_anchor=(1, 1.02),
+        ncol=3,
+        frameon=False,
+        fontsize=8,
+    )
+    fig.tight_layout()
+    return fig
+
+
+def svg_string(fig) -> str:
+    """Render a figure to an SVG string, for inlining without writing a file first."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format="svg", bbox_inches="tight")
+    return buf.getvalue().decode("utf-8")
+
+
 def save(fig, base, formats: set[str]) -> dict[str, str]:
     """Save `fig` as SVG always (embedded in the HTML) and PNG when asked."""
     paths = {}
@@ -230,6 +371,13 @@ def save(fig, base, formats: set[str]) -> dict[str, str]:
             fig.savefig(fh, format="png", dpi=200, bbox_inches="tight")
         paths["png"] = f"{base}.png"
     return paths
+
+
+def save_png(fig, path) -> str:
+    """Save `fig` as a PNG only, for a report that inlines its figures instead of linking them."""
+    with open_replacing(path, "wb") as fh:
+        fig.savefig(fh, format="png", dpi=200, bbox_inches="tight")
+    return str(path)
 
 
 def close(fig) -> None:

@@ -2,10 +2,12 @@ import pytest
 
 from refmasker.regions import (
     Region,
+    intersect,
     intersect_bp,
     merge,
     pad_and_clip,
     read_bed,
+    subtract,
     union_bp,
     write_annotated_bed,
     write_mask_bed,
@@ -78,3 +80,35 @@ def test_annotated_bed(tmp_path):
     lines = p.read_text().splitlines()
     assert lines[0].startswith("#chrom")
     assert lines[1].split("\t") == ["c", "0", "5", "repeats", "nucmer", "5", "n1", "g1,g2"]
+
+
+def test_overlaps_and_intersect_regions():
+    a = [Region("c1", 0, 100), Region("c1", 200, 300)]
+    b = [Region("c1", 50, 250), Region("c2", 0, 10)]
+    assert intersect(a, b) == [Region("c1", 50, 100), Region("c1", 200, 250)]
+    assert intersect_bp(a, b) == 100
+    # Chromosomes present in only one set contribute nothing.
+    assert intersect([Region("c3", 0, 10)], b) == []
+
+
+def test_subtract_is_per_base():
+    a = [Region("c1", 0, 100), Region("c1", 500, 600)]
+    b = [Region("c1", 40, 60)]
+    # The covered middle is cut out, leaving the two ends and the untouched region.
+    assert subtract(a, b) == [
+        Region("c1", 0, 40),
+        Region("c1", 60, 100),
+        Region("c1", 500, 600),
+    ]
+    assert subtract(a, []) == [Region("c1", 0, 100), Region("c1", 500, 600)]
+    assert subtract(a, a) == []
+
+
+def test_subtract_handles_regions_spanning_several_holes():
+    a = [Region("c1", 0, 1000)]
+    b = [Region("c1", 100, 200), Region("c1", 300, 400), Region("c1", 900, 2000)]
+    assert subtract(a, b) == [
+        Region("c1", 0, 100),
+        Region("c1", 200, 300),
+        Region("c1", 400, 900),
+    ]

@@ -6,7 +6,7 @@ All coordinates are BED-style: 0-based start, exclusive end.
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -99,34 +99,82 @@ def pad_and_clip(regions: Iterable[Region], pad: int, lengths: Mapping[str, int]
     return out
 
 
-def intersect_bp(a: Iterable[Region], b: Iterable[Region]) -> int:
-    """Number of bases covered by both region sets."""
-    # Merge each set first so overlaps within a set are not counted twice, then group by
-    # chromosome. merge() returns each chromosome's intervals sorted by start.
-    ma = merge(a)
-    mb = merge(b)
-    by_a: dict[str, list[MergedRegion]] = defaultdict(list)
-    by_b: dict[str, list[MergedRegion]] = defaultdict(list)
-    for m in ma:
-        by_a[m.chrom].append(m)
-    for m in mb:
-        by_b[m.chrom].append(m)
-    total = 0
+def _by_chrom(regions: Iterable[Region]) -> dict[str, list[MergedRegion]]:
+    """Merge `regions` and group them by chromosome, each group sorted by start."""
+    # merge() sorts each chromosome's intervals by start and emits one chromosome at a time,
+    # so appending in that order keeps every group sorted.
+    out: dict[str, list[MergedRegion]] = defaultdict(list)
+    for m in merge(regions):
+        out[m.chrom].append(m)
+    return out
+
+
+def overlaps(a: Iterable[Region], b: Iterable[Region]) -> Iterator[tuple[str, int, int]]:
+    """Yield (chrom, start, end) for every stretch covered by both region sets.
+
+    Each set is merged first, so overlaps within one set are not yielded twice. Lazy, so
+    counting bases does not build a list.
+    """
+    by_a = _by_chrom(a)
+    by_b = _by_chrom(b)
     for chrom, xs in by_a.items():
         ys = by_b.get(chrom, [])
-        # Two-pointer sweep along the chromosome: add the overlap of the current pair, then
+        # Two-pointer sweep along the chromosome: yield the overlap of the current pair, then
         # move past whichever interval ends first (it cannot overlap anything further along).
         i = j = 0
         while i < len(xs) and j < len(ys):
             s = max(xs[i].start, ys[j].start)
             e = min(xs[i].end, ys[j].end)
             if e > s:
-                total += e - s
+                yield chrom, s, e
             if xs[i].end < ys[j].end:
                 i += 1
             else:
                 j += 1
-    return total
+
+
+def intersect_bp(a: Iterable[Region], b: Iterable[Region]) -> int:
+    """Number of bases covered by both region sets."""
+    return sum(e - s for _chrom, s, e in overlaps(a, b))
+
+
+def intersect(
+    a: Iterable[Region], b: Iterable[Region], category: str = "", source: str = ""
+) -> list[Region]:
+    """The intervals covered by both region sets."""
+    return [Region(c, s, e, category, source) for c, s, e in overlaps(a, b)]
+
+
+def subtract(
+    a: Iterable[Region], b: Iterable[Region], category: str = "", source: str = ""
+) -> list[Region]:
+    """The parts of `a` that `b` does not cover.
+
+    This is a per-base difference, so a region of `a` that `b` covers halfway comes back
+    halved. That is different from "regions of `a` that `b` misses entirely", which is what
+    `compare` lists as unique regions.
+    """
+    by_b = _by_chrom(b)
+    # One pointer per chromosome, carried between regions of `a`: both sides are sorted, so
+    # it only ever moves forward and the whole sweep stays linear.
+    start_at: dict[str, int] = {}
+    out: list[Region] = []
+    for m in merge(a):
+        ys = by_b.get(m.chrom, [])
+        j = start_at.get(m.chrom, 0)
+        while j < len(ys) and ys[j].end <= m.start:
+            j += 1
+        start_at[m.chrom] = j
+        pos = m.start
+        k = j
+        while k < len(ys) and ys[k].start < m.end:
+            if ys[k].start > pos:
+                out.append(Region(m.chrom, pos, ys[k].start, category, source))
+            pos = max(pos, ys[k].end)
+            k += 1
+        if pos < m.end:
+            out.append(Region(m.chrom, pos, m.end, category, source))
+    return out
 
 
 def overlaps_any(region: Region, others: Iterable[Region]) -> bool:
