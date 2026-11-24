@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+import shutil
 import sys
+import time
 from pathlib import Path
 
 from refmasker import __version__
+
+log = logging.getLogger(__name__)
 
 # A read longer than a repeat can be placed by the unique sequence on either side, so by default
 # only repeats at least as long as the reads are masked, and never shorter than 200 bp.
@@ -23,6 +27,8 @@ examples:
   refmasker run ref.fna -o ref_mask --read-length 300 --formats html
   refmasker compare ref_mask/mask.bed published_mask.bed
   refmasker check
+  refmasker download-db /path/to/dbs            (the geNomad database, once)
+  refmasker download-db /path/to/dbs --verify   (re-check its checksums)
 """
 
 
@@ -202,10 +208,17 @@ def build_parser() -> argparse.ArgumentParser:
     # ---- refmasker download-db ----
     d = sub.add_parser(
         "download-db",
-        help="download the geNomad database (~1.4 GB)",
-        description="Download the geNomad database used by the prophage category.",
+        help="download the geNomad database (~1.4 GB), or verify a downloaded one",
+        description="Download the geNomad database used by the prophage category, then "
+        "checksum every file so the database can be verified later.",
     )
-    d.add_argument("dest", help="folder to download into")
+    d.add_argument("dest", help="folder to download into; the database goes in DEST/genomad_db")
+    d.add_argument(
+        "--verify",
+        action="store_true",
+        help="do not download: re-checksum the database already in DEST and compare it with "
+        "the manifest written when it was downloaded",
+    )
 
     # ---- refmasker check ----
     sub.add_parser("check", help="list the external tools refmasker uses and their versions")
@@ -263,18 +276,166 @@ def cmd_compare(args) -> int:
     return 0
 
 
-def cmd_download_db(args) -> int:
-    """`refmasker download-db`: fetch the geNomad database with geNomad's own downloader."""
-    from refmasker import external
+# Printed after a download, and worth keeping accurate: refmasker records what it received,
+# which is not the same as checking the bytes against a checksum geNomad published.
+CHECKSUM_NOTE = """\
+The fingerprint is one SHA-256 over every file's checksum and name. It shows this copy is
+intact, and lets you check that two machines -- or everyone sharing one install -- hold the
+same database: compare fingerprints, or re-run with --verify. It is not a comparison against
+a checksum published by geNomad. For that, download the archive yourself from the Zenodo
+record linked in the geNomad documentation and compare its MD5 with the one Zenodo lists."""
 
+
+def _duration(seconds: float) -> str:
+    """Format an elapsed time as '42s' or '7m12s'."""
+    minutes, secs = divmod(int(seconds), 60)
+    return f"{minutes}m{secs:02d}s" if minutes else f"{secs}s"
+
+
+def cmd_download_db(args) -> int:
+    """`refmasker download-db`: download the geNomad database, or verify a downloaded one."""
+    from refmasker import database
+
+    dest = Path(args.dest)
+    if args.verify:
+        return _verify_db(database.resolve_db_dir(dest))
+    return _download_db(dest)
+
+
+def _download_db(dest: Path) -> int:
+    """Explain what is about to happen, run geNomad's downloader, then checksum the result."""
+    from refmasker import database, external
+    from refmasker.detectors.prophages import genomad_db_version
+
+    db_dir = dest / database.DB_DIRNAME
+    # Never overwrite or delete an existing database: it is ~1.4 GB and may be shared. Checked
+    # before the tool check, so "you already have one" wins over "install geNomad".
+    if db_dir.exists():
+        raise FileExistsError(
+            f"{db_dir} already exists. refmasker will not overwrite a database that others may "
+            f"be using: check it with `refmasker download-db {dest} --verify`, download into "
+            "another folder, or remove the old one yourself first."
+        )
     if external.missing_tools(["genomad"]):
         raise external.ToolError("genomad is not on PATH; install it from environment.yml first")
-    dest = Path(args.dest)
+
+    free = database.free_space_gb(dest)
+    manifest_name = database.manifest_path(db_dir).name
+    print(f"refmasker {__version__}: geNomad database download")
+    print()
+    print(f"  Destination    {db_dir}")
+    print("  Needed by      the 'prophage' mask category, whose default caller is geNomad")
+    print("  Downloader     `genomad download-database`, geNomad's own, so the database always")
+    print("                 matches the installed geNomad version")
+    print(f"  geNomad        {external.tool_version('genomad')} at {shutil.which('genomad')}")
+    print("  Source         the database archive geNomad publishes on Zenodo; geNomad prints")
+    print("                 the exact URL in its output below")
+    print(f"  Download size  about {database.APPROX_DOWNLOAD_GB} GB, once (not per run)")
+    print(f"  Free space     {free:.1f} GB where the database will go")
+    print("  Afterwards     refmasker checksums every file with SHA-256 and writes")
+    print(f"                 {manifest_name} next to the database folder")
+    print()
+
+    # Fail now if it cannot possibly fit; warn when the margin for extraction looks thin.
+    if free < database.APPROX_DOWNLOAD_GB:
+        raise ValueError(
+            f"Only {free:.1f} GB free where {dest} will be created, and the download alone is "
+            f"about {database.APPROX_DOWNLOAD_GB} GB. Choose a folder with more space."
+        )
+    if free < database.RECOMMENDED_FREE_GB:
+        log.warning(
+            "%.1f GB free: geNomad downloads a compressed archive and then extracts it, so "
+            "about %.0f GB is a safer margin",
+            free,
+            database.RECOMMENDED_FREE_GB,
+        )
+
     dest.mkdir(parents=True, exist_ok=True)
-    external.run(["genomad", "download-database", str(dest)], dest, "genomad-download")
-    print(f"geNomad database downloaded under {dest}. Point refmasker at the genomad_db folder")
-    print(f"inside it, e.g.: export REFMASKER_GENOMAD_DB={dest / 'genomad_db'}")
+    print("Downloading. Everything between the lines is geNomad's own output:")
+    print("-" * 78)
+    t0 = time.time()
+    db_dir = database.download(dest)
+    print("-" * 78)
+    print(f"Download finished in {_duration(time.time() - t0)}.")
+    print()
+
+    files = database.db_files(db_dir)
+    total = sum(f.stat().st_size for f in files)
+    print(
+        f"Checksumming {len(files)} files ({database.human_bytes(total)}) with SHA-256. "
+        "This reads the whole database once:"
+    )
+    sums = database.hash_tree(db_dir)
+    db_version = genomad_db_version(db_dir)
+    manifest = database.write_manifest(db_dir, sums, db_version)
+    print()
+    print(f"  Database version   {db_version}")
+    print(f"  Files              {len(sums)} ({database.human_bytes(total)})")
+    print(f"  Fingerprint        {database.fingerprint(sums)}")
+    print(f"  Manifest           {manifest}")
+    print()
+    print(CHECKSUM_NOTE)
+    print()
+    print("Next:")
+    print(f"  export REFMASKER_GENOMAD_DB={db_dir}")
+    print("      (add that line to ~/.bashrc, or pass --genomad-db to `refmasker run`)")
+    print("  refmasker check")
+    print("      confirms refmasker finds the database and shows its version")
+    print(f"  refmasker download-db {dest} --verify")
+    print("      re-checks every file against the manifest, any time")
+    print()
+    print("On a shared cluster, make the database read-only so everyone uses the same copy")
+    print(f"and nobody can change it:  chmod -R a-w {db_dir}")
     return 0
+
+
+def _verify_db(db_dir: Path) -> int:
+    """Re-checksum a downloaded database and report whether it still matches its manifest."""
+    from refmasker import database
+
+    print(f"refmasker {__version__}: verifying a geNomad database")
+    print()
+    print(f"  Database  {db_dir}")
+    print(f"  Manifest  {database.manifest_path(db_dir)}")
+    print()
+    files = database.db_files(db_dir)
+    total = sum(f.stat().st_size for f in files)
+    print(
+        f"Re-checksumming {len(files)} files ({database.human_bytes(total)}) with SHA-256. "
+        "This reads the whole database once:"
+    )
+    result, recorded = database.verify(db_dir)
+    # An old or hand-made manifest may have no fingerprint line; only compare if it has one.
+    fingerprint_differs = (
+        bool(result.recorded_fingerprint) and result.fingerprint != result.recorded_fingerprint
+    )
+    print()
+    if result.ok and not fingerprint_differs:
+        print(f"  OK: {result.checked} files, every checksum matches the manifest.")
+        print(f"  Fingerprint       {result.fingerprint}")
+        print(f"  Database version  {recorded.db_version or 'unknown'}")
+        by = recorded.written_by or "an unknown version"
+        print(f"  Recorded by       refmasker {by} on {recorded.written or 'an unknown date'}")
+        return 0
+    print("  FAILED: this database does not match its manifest.")
+    for label, items in (
+        ("changed", result.changed),
+        ("missing", result.missing),
+        ("not in the manifest", result.added),
+    ):
+        if items:
+            shown = ", ".join(items[:10])
+            if len(items) > 10:
+                shown += f", +{len(items) - 10} more"
+            print(f"    {len(items)} file(s) {label}: {shown}")
+    if fingerprint_differs:
+        print(f"    fingerprint now       {result.fingerprint}")
+        print(f"    fingerprint recorded  {result.recorded_fingerprint}")
+    print()
+    print("  A database that does not match may be incomplete, corrupted, a different version,")
+    print("  or changed since it was downloaded. Download a fresh copy into a new folder, and")
+    print("  do not use this one for runs you intend to publish.")
+    return 2
 
 
 def cmd_check(_args) -> int:
@@ -282,7 +443,7 @@ def cmd_check(_args) -> int:
 
     Returns 1 if a tool needed by a default category is missing.
     """
-    from refmasker import external
+    from refmasker import database, external
     from refmasker.detectors import categories
     from refmasker.detectors.prophages import genomad_db, genomad_db_version
 
@@ -302,6 +463,16 @@ def cmd_check(_args) -> int:
         print("  geNomad database: not set (use --genomad-db or REFMASKER_GENOMAD_DB)")
     else:
         print(f"  geNomad database: {db} (version {genomad_db_version(db)})")
+        # Only read the recorded checksums; re-hashing 1.4 GB belongs in `download-db --verify`.
+        mpath = database.manifest_path(db)
+        if mpath.is_file():
+            try:
+                fingerprint = database.read_manifest(mpath).fingerprint or "not recorded"
+            except (OSError, ValueError):
+                fingerprint = f"unreadable ({mpath.name})"
+            print(f"  database checksums: {fingerprint}")
+        else:
+            print(f"  database checksums: not recorded (no {mpath.name})")
     if missing_default:
         print(f"Missing tools for the default categories: {', '.join(missing_default)}")
         return 1

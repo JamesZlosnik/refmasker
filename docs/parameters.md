@@ -12,7 +12,7 @@
 | `--repeat-min-len N` | max(200, read length) | Minimum repeat length (bp); both copies must reach it |
 | `--repeat-min-id PCT` | 90 | Minimum % identity between repeat copies |
 | `--phage-tool` | `genomad` | `genomad` or `phispy` |
-| `--genomad-db DIR` | `$REFMASKER_GENOMAD_DB` | geNomad database folder (the `genomad_db` directory) |
+| `--genomad-db DIR` | `$REFMASKER_GENOMAD_DB` | geNomad database folder (the `genomad_db` directory), downloaded once with `refmasker download-db` ([README](../README.md#the-genomad-database)) |
 | `--isescan-partial` | off | Also mask IS elements ISEScan calls partial |
 | `--mask-genes-matching REGEX` | none | Mask annotated genes whose product, gene name or locus tag matches (case-insensitive). Turns on `genes` |
 | `--rrna-operon-gap N` | 1000 | Join rRNA genes this close into one operon region; 0 keeps them separate |
@@ -53,4 +53,4 @@ measured (see [validation.md](validation.md)).
 | --- | --- |
 | 0 | Success |
 | 1 | No command given; or `refmasker check` found a default tool missing |
-| 2 | Input, option or tool error (message printed) |
+| 2 | Input, option or tool error, or a database that failed `download-db --verify` (message printed) |
