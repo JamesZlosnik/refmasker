@@ -7,8 +7,8 @@ from html import escape
 from pathlib import Path
 
 from refmasker import __version__
-from refmasker.report.html import CSS, JS, strip_svg_header
 from refmasker.detectors import categories
+from refmasker.report.html import CSS, JS, strip_svg_header
 from refmasker.report.plots import (
     COMPARE_COLOURS,
     close,
