@@ -15,7 +15,6 @@ from matplotlib.patches import Patch  # noqa: E402
 
 from refmasker.report.palette import (  # noqa: E402
     CATEGORY_SHARED_COLOUR,
-    COLOURS,
     COMPARE_COLOURS,
     colour,
 )
