@@ -32,6 +32,76 @@ See [docs/categories.md](docs/categories.md) for how each one is detected and it
 Recombination is **not** handled here because it depends on your isolates, not the reference: run
 Gubbins or ClonalFrameML on the core alignment as usual.
 
+## How it works
+
+One command, `refmasker run`, does everything below. Each detector runs an established tool on the
+reference, turns its output into intervals, and tags them with the category and the tool that found
+them; refmasker itself does the bookkeeping, not the biology.
+
+```mermaid
+flowchart TD
+    FA["Reference FASTA<br/>one bacterial genome"]
+    AN["Annotation (optional)<br/>GFF3 or GenBank"]
+    EB["Your own regions (optional)<br/>--extra-bed"]
+
+    NORM["Normalise<br/>copy the FASTA with ID-only headers,<br/>so every tool reports the same<br/>sequence names that go into mask.bed"]
+
+    subgraph DET["Detectors — run in turn, each returning intervals and why"]
+        direction LR
+        D1["repeats<br/>nucmer self-alignment<br/>both copies of each hit"]
+        D2["is<br/>ISEScan, plus transposase<br/>genes from the annotation"]
+        D3["prophage<br/>geNomad (or PhiSpy)"]
+        D4["rrna<br/>barrnap, genes joined<br/>into operons"]
+        D5["opt-in<br/>dustmasker, MinCED,<br/>gene regex, plasmids, BED"]
+    end
+
+    COMB["Combine<br/>pad (--pad) and clip to contig ends<br/>label each region with the genes it overlaps<br/>sort in FASTA order, then merge overlaps"]
+
+    BED["mask.bed<br/>merged intervals, 3 columns<br/>what snippy needs"]
+    ANNO["mask.annotated.bed<br/>every region before merging,<br/>with category, tool, name, genes"]
+    SUM["summary.tsv<br/>bp and % masked per category<br/>and per record"]
+    REP["report.html / report.pdf<br/>figures/, run_info.json, refmasker.log<br/>tool versions, checksums, warnings"]
+
+    SNIP["snippy-core --mask mask.bed<br/>core-genome SNP alignment"]
+
+    FA --> NORM
+    NORM --> DET
+    AN --> DET
+    EB --> DET
+    DET --> COMB
+    AN -.->|"gene labels"| COMB
+    COMB --> BED
+    COMB --> ANNO
+    COMB --> SUM
+    COMB --> REP
+    BED --> SNIP
+
+    classDef input fill:#D7EEF9,stroke:#0072B2,stroke-width:1.5px,color:#102A43
+    classDef step fill:#FDF2D8,stroke:#E69F00,stroke-width:1.5px,color:#3A2B00
+    classDef detector fill:#DCF2E9,stroke:#009E73,stroke-width:1.5px,color:#04332A
+    classDef output fill:#F6E2EE,stroke:#CC79A7,stroke-width:1.5px,color:#3B1230
+    classDef downstream fill:#E8E8E8,stroke:#555555,stroke-width:1.5px,color:#1A1A1A
+
+    class FA,AN,EB input
+    class NORM,COMB step
+    class D1,D2,D3,D4,D5 detector
+    class BED,ANNO,SUM,REP output
+    class SNIP downstream
+    style DET fill:#F4FBF8,stroke:#009E73,stroke-dasharray:4 3,color:#04332A
+```
+
+Two details the diagram glosses over, both of which matter when reading the output:
+
+- **Categories overlap.** A region can be a repeat *and* an IS element. `mask.annotated.bed` keeps
+  every region separately with its reason, while `mask.bed` merges them, and `summary.tsv` counts
+  each base once within a category and once again for the genome-wide total.
+- **Nothing is dropped silently.** Regions on sequences absent from the FASTA, draft assemblies,
+  N bases and annotation/FASTA name mismatches all become warnings in the log and the report.
+
+The tools run on a private copy of the reference in `OUTDIR/work`, which is deleted when the run
+finishes, successfully or not. For a fuller walkthrough, file by file, see
+[docs/how-it-works.md](docs/how-it-works.md).
+
 ## Install
 
 refmasker is a Python package; the detection tools come from bioconda.
@@ -73,8 +143,21 @@ Before it starts, it prints where the database will go, how much will be downloa
 space is free, and which geNomad it found. Then it hands over to geNomad's own downloader,
 `genomad download-database` — geNomad's command, not a URL built into refmasker, so the database
 always matches the installed geNomad version. geNomad's output appears in your terminal as it
-happens, between two rules, including the URL it fetches from (the archive geNomad publishes on
-Zenodo) and its own download progress.
+happens, between two rules: the URL it is fetching, then its own progress bar with size, speed
+and time remaining.
+
+**Where the database comes from.** geNomad hosts it at NERSC. Its downloader first reads a small
+table of which database version goes with which geNomad, then fetches the matching archive from
+the same place:
+
+```
+https://portal.nersc.gov/genomad/__data__/releases.txt              # db version <-> geNomad version
+https://portal.nersc.gov/genomad/__data__/genomad_db_v1.9.tar.gz    # geNomad 1.13.x -> database v1.9
+```
+
+It downloads over HTTPS, extracts into `DEST/genomad_db`, and deletes the archive afterwards. The
+URLs above are from geNomad 1.13.0, the version pinned in `environment.yml`; the version table is
+what makes the archive name follow your geNomad, so trust the URL geNomad prints over this one.
 
 When the download finishes, refmasker reads the whole database back and records a SHA-256 for
 every file (with a progress bar) in a manifest written next to the database folder:
@@ -103,10 +186,12 @@ as well.
 
 **What the fingerprint does and does not prove.** It is one SHA-256 over every file's checksum and
 name, so it shows the copy is intact, and it lets two machines — or everyone sharing one install —
-confirm they hold the same database by comparing a single line. It is **not** a check against a
-checksum published by geNomad: refmasker only ever sees what arrived. If you need that, download
-the archive yourself from the Zenodo record linked in the geNomad documentation, compare its MD5
-with the one Zenodo lists, then extract it.
+confirm they hold the same database by comparing a single line.
+
+What it cannot do is prove the download itself was genuine. geNomad publishes no checksum beside
+the archive and its downloader verifies none, so HTTPS to `portal.nersc.gov` is what protects the
+transfer, and refmasker can only record what arrived. Treat the fingerprint as a baseline: take it
+while the database is fresh, and compare against it from then on.
 
 #### Sharing one copy on a cluster
 

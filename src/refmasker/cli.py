@@ -281,9 +281,10 @@ def cmd_compare(args) -> int:
 CHECKSUM_NOTE = """\
 The fingerprint is one SHA-256 over every file's checksum and name. It shows this copy is
 intact, and lets you check that two machines -- or everyone sharing one install -- hold the
-same database: compare fingerprints, or re-run with --verify. It is not a comparison against
-a checksum published by geNomad. For that, download the archive yourself from the Zenodo
-record linked in the geNomad documentation and compare its MD5 with the one Zenodo lists."""
+same database: compare fingerprints, or re-run with --verify. It cannot show the download
+itself was genuine: geNomad publishes no checksum beside the archive and its downloader
+verifies none, so HTTPS to its host is what protects the transfer. Treat this fingerprint as
+the baseline for a fresh database and compare against it from now on."""
 
 
 def _duration(seconds: float) -> str:
@@ -328,8 +329,8 @@ def _download_db(dest: Path) -> int:
     print("  Downloader     `genomad download-database`, geNomad's own, so the database always")
     print("                 matches the installed geNomad version")
     print(f"  geNomad        {external.tool_version('genomad')} at {shutil.which('genomad')}")
-    print("  Source         the database archive geNomad publishes on Zenodo; geNomad prints")
-    print("                 the exact URL in its output below")
+    print(f"  Source         {database.DB_SOURCE_URL}")
+    print("                 geNomad's own host; it prints the exact archive URL below")
     print(f"  Download size  about {database.APPROX_DOWNLOAD_GB} GB, once (not per run)")
     print(f"  Free space     {free:.1f} GB where the database will go")
     print("  Afterwards     refmasker checksums every file with SHA-256 and writes")
