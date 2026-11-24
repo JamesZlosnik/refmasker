@@ -10,7 +10,9 @@ gets a SHA-256, written next to the folder as a `sha256sum`-compatible manifest,
 short *fingerprint* over the whole set. That makes a database checkable later (`--verify`),
 and comparable between machines or between everyone sharing one read-only copy on a cluster.
 
-It is not a comparison against a checksum published by geNomad: see the README for that.
+It is not a check against a checksum published by geNomad: none is published beside the
+archive, and geNomad's downloader verifies none, so HTTPS to its host is what protects the
+transfer. See the README.
 """
 
 from __future__ import annotations
@@ -31,6 +33,13 @@ log = logging.getLogger(__name__)
 
 # The folder `genomad download-database DEST` creates inside DEST.
 DB_DIRNAME = "genomad_db"
+
+# Where geNomad hosts its database, shown to the user so the download is not a black box.
+# refmasker never fetches from here: geNomad's downloader holds the real URL (it reads
+# releases.txt for the database version matching the installed geNomad, then fetches
+# genomad_db_v<version>.tar.gz) and prints the archive URL it uses, which is the one to
+# trust if this ever goes stale. Checked against geNomad 1.13.0.
+DB_SOURCE_URL = "https://portal.nersc.gov/genomad/__data__/"
 
 # The manifest is written next to the database folder, not inside it, so the database itself
 # can be made read-only (chmod -R a-w) without stopping a later re-download or re-verify.
