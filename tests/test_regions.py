@@ -4,8 +4,10 @@ from refmasker.regions import (
     Region,
     intersect,
     intersect_bp,
+    is_annotated_bed,
     merge,
     pad_and_clip,
+    read_annotated_bed,
     read_bed,
     subtract,
     union_bp,
@@ -112,3 +114,28 @@ def test_subtract_handles_regions_spanning_several_holes():
         Region("c1", 200, 300),
         Region("c1", 400, 900),
     ]
+
+
+def test_annotated_bed_round_trip(tmp_path):
+    regions = [
+        Region("chr1", 10, 20, "is", "ISEScan", "IS6110", ("b1", "b2")),
+        Region("chr1", 50, 60, "repeats", "nucmer", "", ()),
+    ]
+    path = tmp_path / "mask.annotated.bed"
+    write_annotated_bed(path, regions)
+    assert is_annotated_bed(path)
+    assert read_annotated_bed(path) == regions  # '.' placeholders come back as empty fields
+
+
+def test_plain_bed_is_not_mistaken_for_an_annotated_one(tmp_path):
+    plain = tmp_path / "mask.bed"
+    plain.write_text("chr1\t0\t100\n")
+    assert not is_annotated_bed(plain)
+    assert not is_annotated_bed(tmp_path / "missing.bed")
+
+
+def test_read_annotated_bed_rejects_short_lines(tmp_path):
+    path = tmp_path / "bad.annotated.bed"
+    path.write_text("#chrom\tstart\tend\tcategory\tsource\tlength\tname\tgenes\nchr1\t0\t10\n")
+    with pytest.raises(ValueError, match="at least the columns"):
+        read_annotated_bed(path)

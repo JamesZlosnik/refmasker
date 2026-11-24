@@ -339,10 +339,28 @@ colour where only it masks), a per-sequence table, and sortable tables of the re
 has that the other misses entirely. Two kinds of difference are kept apart throughout: bases
 only one mask covers, and whole regions the other mask does not touch at all.
 
+**What kind of masking the differences are.** A `mask.bed` has three columns, so the categories
+are not in it: they are in the `mask.annotated.bed` written beside it. When one is available the
+report also answers *what* each mask is missing, not only how much:
+
+| Category | bp | Also in B | Only here | Missed by the other |
+| --- | --- | --- | --- | --- |
+| Prophages | 55,881 | 0 | 55,881 | 100% |
+| IS / transposons | 28,086 | 14,328 | 13,758 | 49% |
+| Repeats | 54,875 | 54,875 | 0 | 0% |
+
+with a bar per category showing the same split, and a category and name on every row of the
+unique-region tables, filterable by category. refmasker finds the annotated file on its own: it
+uses a mask you pass that is already an annotated BED, or the `mask.annotated.bed` next to a
+plain one, and says in the output which file it read. `--annotated-a` / `--annotated-b` point it
+elsewhere, and `none` switches it off.
+
 | Option | Effect |
 | --- | --- |
 | `--ref ref.fna` | The reference the masks were built for. Without it the BEDs give no sequence lengths, so percentages of the genome are left out and the figures run to the last masked base rather than to the end of each sequence |
 | `--rename OLD=NEW` | Rename a sequence in both files first, for masks that call the same chromosome different things. Repeatable |
+| `--annotated-a BED` | The `mask.annotated.bed` for A, which carries the categories. Found automatically when it sits next to the mask; `none` switches it off |
+| `--annotated-b BED` | The same for B |
 | `--out-prefix P` | Write `P.compare.html`, `P.only_a.bed` and `P.only_b.bed` instead of naming the report after the inputs |
 | `--formats` | `html` (default), `html,png` to also save the two figures as PNGs, or `none` for the terminal summary only |
 

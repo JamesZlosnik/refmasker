@@ -53,4 +53,11 @@ Security and HPC hardening:
   also saves the figures. New `--ref` supplies the sequence lengths the BEDs do not carry, for
   percentages of the genome and a true-to-scale figure. The comparison also reports per-sequence
   numbers and warns when the two masks share no sequence names.
+- The comparison report also says what kind of masking each difference is, when the categories
+  are available: a table and a figure per mask category (bp, bp the other mask also covers, bp
+  only this mask has, and the percentage the other misses), and the category and name on every
+  row of the unique-region tables, filterable by category. A three-column `mask.bed` carries no
+  categories, so refmasker reads them from a `mask.annotated.bed`: the mask itself when it is
+  one, the file beside it, or `--annotated-a` / `--annotated-b` (`none` switches it off). The
+  file used is named in the log and in the report.
 - Thread use defaults to 1, or the SLURM/SGE allocation.

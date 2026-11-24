@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from refmasker.cli import compare_output_base, main
-from refmasker.compare import compare, compare_files
+from refmasker.compare import annotated_source, compare, compare_files
 from refmasker.regions import Region
 
 # Two masks over one chromosome: a partial overlap, an identical region, and one region
@@ -182,3 +182,122 @@ def test_empty_masks_do_not_crash_the_report(tmp_path, monkeypatch):
     assert main(["compare", str(a), str(b)]) == 0
     text = (tmp_path / "compare_a_vs_b.html").read_text()
     assert "nothing to draw" in text
+
+
+# ---------------------------------------------------------------- mask categories
+#
+# A plain mask.bed has three columns, so the categories behind each difference come from a
+# mask.annotated.bed: the input itself, the file beside it, or --annotated-a/-b.
+
+ANNOTATED_A = (
+    "#chrom\tstart\tend\tcategory\tsource\tlength\tname\tgenes\n"
+    "chr1\t1000\t3000\trepeats\tnucmer\t2000\tmatches 1 other copy\t.\n"
+    "chr1\t10000\t12000\tis\tISEScan\t2000\tIS6110\t.\n"
+    "chr1\t50000\t50500\tprophage\tgeNomad\t500\tscore=0.9\t.\n"
+)
+
+
+@pytest.fixture
+def annotated_masks(tmp_path):
+    """A refmasker output folder (mask.bed with its annotated twin) and a plain published mask."""
+    folder = tmp_path / "ST8_mask"
+    folder.mkdir()
+    (folder / "mask.bed").write_text(MASK_A)
+    (folder / "mask.annotated.bed").write_text(ANNOTATED_A)
+    published = tmp_path / "published.bed"
+    published.write_text(MASK_B)
+    return folder / "mask.bed", published
+
+
+def test_annotated_source_finds_the_file_beside_the_mask(annotated_masks):
+    mask, published = annotated_masks
+    assert annotated_source(mask, None) == mask.with_suffix(".annotated.bed")
+    assert annotated_source(published, None) is None
+
+
+def test_annotated_source_accepts_an_annotated_bed_as_the_mask(annotated_masks):
+    annotated = annotated_masks[0].with_suffix(".annotated.bed")
+    assert annotated_source(annotated, None) == annotated
+
+
+def test_annotated_source_override_and_off(annotated_masks):
+    mask, published = annotated_masks
+    annotated = mask.with_suffix(".annotated.bed")
+    assert annotated_source(published, str(annotated)) == annotated
+    assert annotated_source(mask, "none") is None
+
+
+def test_annotated_source_rejects_a_bad_override(annotated_masks, tmp_path):
+    mask, published = annotated_masks
+    with pytest.raises(FileNotFoundError):
+        annotated_source(mask, str(tmp_path / "nope.bed"))
+    with pytest.raises(ValueError, match="not a refmasker mask.annotated.bed"):
+        annotated_source(mask, str(published))
+
+
+def test_categories_report_what_the_other_mask_misses(annotated_masks):
+    mask, published = annotated_masks
+    c = compare_files(mask, published, annotated_a=mask.with_suffix(".annotated.bed"))
+    rows = {r.category: r for r in c.categories_a}
+    # B covers 1500-3000 of the repeat, all of the IS, and none of the prophage.
+    assert (rows["repeats"].bp, rows["repeats"].bp_shared, rows["repeats"].bp_only) == (
+        2000,
+        1500,
+        500,
+    )
+    assert rows["is"].bp_only == 0 and rows["is"].pct_missed == 0
+    assert rows["prophage"].bp_only == 500 and rows["prophage"].pct_missed == 100
+    # Biggest difference first, so the reader sees what matters at the top.
+    assert [r.category for r in c.categories_a][0] == "prophage"
+    assert c.categories_b == []  # the published mask has no categories to report
+
+
+def test_unique_regions_carry_their_categories_and_names(annotated_masks):
+    mask, published = annotated_masks
+    c = compare_files(mask, published, annotated_a=mask.with_suffix(".annotated.bed"))
+    (region,) = c.unique_a
+    assert (region.start, region.end) == (50000, 50500)
+    assert region.categories == ("prophage",)
+    assert region.names == ("score=0.9",)
+
+
+def test_unique_regions_without_categories_are_still_listed(masks):
+    c = compare_files(*masks)
+    assert [(r.start, r.end) for r in c.unique_a] == [(50000, 50500)]
+    assert c.unique_a[0].categories == ()
+
+
+def test_rename_keeps_the_categories(annotated_masks, tmp_path):
+    mask, _ = annotated_masks
+    other = tmp_path / "other.bed"
+    other.write_text("NC_1\t1000\t3000\n")
+    c = compare_files(mask, other, {"NC_1": "chr1"}, annotated_a=mask.with_suffix(".annotated.bed"))
+    assert c.bp_both == 2000
+    assert {r.category for r in c.categories_a} == {"repeats", "is", "prophage"}
+
+
+def test_cli_finds_the_annotated_file_by_itself(annotated_masks, tmp_path, monkeypatch, caplog):
+    monkeypatch.chdir(tmp_path)
+    mask, published = annotated_masks
+    assert main(["compare", str(mask), str(published)]) == 0
+    assert "Categories for A from" in caplog.text
+    text = (tmp_path / "compare_mask_vs_published.html").read_text()
+    assert "What kind of masking the differences are" in text  # the per-category figure
+    assert "by category" in text
+    assert "Prophages" in text  # the category label, from the detector registry
+    assert "score=0.9" in text  # the region's name, in the unique-regions table
+
+
+def test_cli_can_switch_the_categories_off(annotated_masks, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    mask, published = annotated_masks
+    assert main(["compare", str(mask), str(published), "--annotated-a", "none"]) == 0
+    text = (tmp_path / "compare_mask_vs_published.html").read_text()
+    assert "Neither mask came with categories" in text
+    assert "What kind of masking the differences are" not in text
+
+
+def test_cli_rejects_a_plain_bed_as_annotated(annotated_masks, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    mask, published = annotated_masks
+    assert main(["compare", str(mask), str(published), "--annotated-a", str(published)]) == 2

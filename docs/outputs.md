@@ -110,8 +110,10 @@ The page holds:
 | Tiles | bp masked by each mask, bp masked by both, Jaccard index, and what fraction of each mask the other covers. Percentages of the genome only with `--ref` |
 | How much the masks share | One bar per mask, split into bases the other mask also covers and bases unique to it |
 | Where they agree and differ | One row per mask along each sequence: green where both masks cover a stretch, the mask's own colour where only it does |
+| What kind of masking the differences are | A bar per mask category: grey for the part the other mask also covers, the category's own colour for what it misses. Only with an annotated BED |
+| By category | Per category: regions, bp, bp the other mask also covers, bp only this mask has, and the percentage the other misses. Only with an annotated BED |
 | By sequence | Per-sequence bp for each mask, shared bp, bp unique to each, and the Jaccard index for that sequence |
-| Regions the other mask misses entirely | Every merged region of one mask that shares no base with the other, sortable and searchable |
+| Regions the other mask misses entirely | Every merged region of one mask that shares no base with the other, sortable and searchable, with the category and name behind it when an annotated BED supplied them |
 | Run details | The two paths, the reference, any `--rename`, and when the page was written |
 
 Two differences are reported separately, because they answer different questions: *bases only in
@@ -120,3 +122,13 @@ one mask* is a per-base difference (a region the other mask half covers counts h
 
 `--out-prefix` additionally writes `PREFIX.only_a.bed` and `PREFIX.only_b.bed`, the merged
 regions each mask has that the other does not touch.
+
+### Where the categories come from
+
+`mask.bed` has three columns and no categories. They live in `mask.annotated.bed`, so the
+category sections appear only when one is available. refmasker looks, in order, at
+`--annotated-a` / `--annotated-b` (the literal `none` switches it off), the mask itself when it
+is already an annotated BED, and a `mask.annotated.bed` beside a plain one. It reports which
+file it used, in the log and in the report's run details, because the last of those reads a file
+you did not name. Comparing two refmasker runs gives categories for both masks; comparing
+against a published three-column mask gives them for yours only.

@@ -224,6 +224,12 @@ def _nice_step(span: float) -> float:
 # same Okabe-Ito palette as the category colours above.
 COMPARE_COLOURS = {"both": "#009E73", "only_a": "#0072B2", "only_b": "#D55E00"}
 
+# The per-category figure cannot use the green above for "shared": the category colours are
+# from the same palette, and prophage *is* that green, so a fully shared bar and an all-
+# prophage bar would look identical. Shared is neutral grey there, category colour is the
+# difference.
+CATEGORY_SHARED_COLOUR = "#C9CCD1"
+
 
 def _compare_layout(rows):
     """Panels for the comparison figures: (title, span, {chrom: offset}).
@@ -349,6 +355,69 @@ def compare_tracks_figure(c, name_a: str, name_b: str):
         frameon=False,
         fontsize=8,
     )
+    fig.tight_layout()
+    return fig
+
+
+def compare_category_figure(c, name_a: str, name_b: str, labels: dict[str, str]):
+    """Per mask category, how much of it the other mask also covers.
+
+    One panel per mask that came with an annotated BED. Each bar is one category: the part
+    the other mask shares, then the part only this mask has, in that category's colour from
+    the run report.
+    """
+    panels = [
+        (name_a, name_b, c.categories_a),
+        (name_b, name_a, c.categories_b),
+    ]
+    panels = [p for p in panels if p[2]]
+    heights = [0.38 * len(rows) + 1.0 for _, _, rows in panels]
+    fig, axes = plt.subplots(
+        len(panels),
+        1,
+        figsize=(11, sum(heights)),
+        gridspec_kw={"height_ratios": heights},
+        squeeze=False,
+    )
+    for ax, (owner, other, rows) in zip(axes[:, 0], panels, strict=True):
+        div, unit = _scale(max(r.bp for r in rows))
+        # Rows are drawn from the bottom up, so reverse to put the biggest difference on top.
+        shown = list(reversed(rows))
+        for i, r in enumerate(shown):
+            ax.barh(i, r.bp_shared / div, height=0.6, color=CATEGORY_SHARED_COLOUR)
+            ax.barh(
+                i, r.bp_only / div, left=r.bp_shared / div, height=0.6, color=colour(r.category)
+            )
+            ax.text(
+                r.bp / div,
+                i,
+                f"  {r.bp_only:,} bp ({r.pct_missed:.0f}%)",
+                va="center",
+                ha="left",
+                fontsize=8,
+                color="#444444",
+            )
+        ax.set_yticks(range(len(shown)))
+        ax.set_yticklabels([labels.get(r.category, r.category) for r in shown])
+        ax.set_ylim(-0.6, len(shown) - 0.4)
+        ax.set_xlim(0, max(r.bp for r in rows) / div * 1.3)
+        ax.set_xlabel(f"Bases masked ({unit})")
+        # The title carries the key, so the figure still reads when saved on its own.
+        ax.set_title(
+            f"{_trim(owner)} by category: grey is what {_trim(other)} also masks, "
+            "colour is what it misses",
+            loc="left",
+            fontsize=9,
+        )
+        ax.spines["left"].set_visible(False)
+        ax.tick_params(axis="y", length=0)
+        ax.legend(
+            handles=[Patch(facecolor=CATEGORY_SHARED_COLOUR, label=f"also in {_trim(other, 16)}")],
+            loc="lower right",
+            bbox_to_anchor=(1, 1.0),
+            frameon=False,
+            fontsize=8,
+        )
     fig.tight_layout()
     return fig
 

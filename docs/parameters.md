@@ -56,6 +56,8 @@ measured (see [validation.md](validation.md)).
 | --- | --- | --- |
 | `--ref FASTA` | none | The reference the two masks were built for. Supplies the sequence lengths, which add percentages of the genome and draw the figures to the true length of each sequence instead of to the last masked base |
 | `--rename OLD=NEW` | none | Rename a sequence in both files before comparing, for masks that name the same chromosome differently. Can be repeated |
+| `--annotated-a BED` | found automatically | The `mask.annotated.bed` holding A's categories, which a three-column `mask.bed` does not carry. By default refmasker uses the mask itself when it is already an annotated BED, otherwise a `mask.annotated.bed` next to it; `none` ignores it. The file read is named in the log and in the report |
+| `--annotated-b BED` | found automatically | The same for B |
 | `--out-prefix P` | none | Write `P.compare.html`, `P.only_a.bed` and `P.only_b.bed`. Without it the report is named `compare_<A>_vs_<B>.html` in the current folder, and no BED files are written |
 | `--formats` | `html` | `html`, `html,png` (also save the figures as PNG) or `none` (terminal summary only) |
 

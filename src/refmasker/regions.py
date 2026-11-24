@@ -244,3 +244,63 @@ def write_annotated_bed(path: str | Path, regions: Iterable[Region]) -> None:
                 )
                 + "\n"
             )
+
+
+def _unplaceholder(value: str) -> str:
+    """Turn the '.' that write_annotated_bed writes for an empty field back into ''."""
+    return "" if value == "." else value
+
+
+def is_annotated_bed(path: str | Path) -> bool:
+    """True if `path` looks like a refmasker mask.annotated.bed (by its header line)."""
+    try:
+        with open(path) as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                # The header is the first non-blank line that write_annotated_bed writes.
+                cols = line.lstrip("#").rstrip("\n").split("\t")
+                return cols[:4] == ANNOTATED_HEADER[:4]
+    except OSError:
+        return False
+    return False
+
+
+def read_annotated_bed(path: str | Path) -> list[Region]:
+    """Read a mask.annotated.bed back, keeping each region's category, source and name.
+
+    The length column is recomputed from the coordinates rather than trusted, and '.' means
+    an empty field (as written by write_annotated_bed).
+    """
+    regions = []
+    with open(path) as fh:
+        for lineno, line in enumerate(fh, 1):
+            line = line.rstrip("\n\r")
+            if not line.strip() or line.startswith("#"):
+                continue
+            cols = line.split("\t")
+            if len(cols) < 5:
+                raise ValueError(
+                    f"{path}:{lineno}: an annotated BED needs at least the columns "
+                    f"{', '.join(ANNOTATED_HEADER[:5])}"
+                )
+            try:
+                start, end = int(cols[1]), int(cols[2])
+            except ValueError as exc:
+                raise ValueError(f"{path}:{lineno}: start/end are not integers") from exc
+            if start < 0 or end < start:
+                raise ValueError(f"{path}:{lineno}: invalid interval {start}-{end}")
+            name = _unplaceholder(cols[6]) if len(cols) > 6 else ""
+            genes = _unplaceholder(cols[7]) if len(cols) > 7 else ""
+            regions.append(
+                Region(
+                    cols[0],
+                    start,
+                    end,
+                    _unplaceholder(cols[3]),
+                    _unplaceholder(cols[4]),
+                    name,
+                    tuple(g for g in genes.split(",") if g),
+                )
+            )
+    return regions
