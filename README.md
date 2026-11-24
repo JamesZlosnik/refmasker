@@ -51,7 +51,80 @@ has already installed the dependencies). Avoid editable installs (`pip install -
 environments: anyone who can edit the checkout would change the code every user of the environment
 runs.
 
-### Shared HPC systems
+The conda environment targets Linux (x86-64). ISEScan and geNomad may not have macOS ARM builds;
+run refmasker on your Linux server.
+
+### The geNomad database
+
+The default prophage caller, geNomad, needs a database of about **1.4 GB**. You download it
+**once** and every later run reads it; it is not downloaded per run. Nothing else in refmasker
+needs it, so you can skip this section if you mask with `--categories repeats,is,rrna`, or call
+prophages with `--phage-tool phispy` (which needs a GenBank `--annotation`) instead.
+
+```bash
+refmasker download-db /path/to/dbs                      # downloads into /path/to/dbs/genomad_db
+export REFMASKER_GENOMAD_DB=/path/to/dbs/genomad_db     # add this line to ~/.bashrc
+refmasker check                                         # confirms refmasker finds it
+```
+
+#### What the download command does
+
+Before it starts, it prints where the database will go, how much will be downloaded, how much
+space is free, and which geNomad it found. Then it hands over to geNomad's own downloader,
+`genomad download-database` — geNomad's command, not a URL built into refmasker, so the database
+always matches the installed geNomad version. geNomad's output appears in your terminal as it
+happens, between two rules, including the URL it fetches from (the archive geNomad publishes on
+Zenodo) and its own download progress.
+
+When the download finishes, refmasker reads the whole database back and records a SHA-256 for
+every file (with a progress bar) in a manifest written next to the database folder:
+
+```
+  Database version   1.9
+  Files              23 (1.4 GB)
+  Fingerprint        35c190ee6273feddd7d7d1985defac5403a9eee49570d08b4e47594b188f0828
+  Manifest           /path/to/dbs/genomad_db.sha256sums
+```
+
+refmasker never overwrites an existing `genomad_db` folder, because other people may be using it:
+download into a different folder, or remove the old one yourself first.
+
+#### Checking a database later
+
+```bash
+refmasker download-db /path/to/dbs --verify
+```
+
+This downloads nothing. It re-reads every file, compares it with the manifest, lists anything
+changed, missing or newly appeared, and exits 2 if the database no longer matches. `refmasker
+check` shows the recorded fingerprint without re-reading the files. The manifest is an ordinary
+`sha256sum` file, so `cd /path/to/dbs/genomad_db && sha256sum -c ../genomad_db.sha256sums` works
+as well.
+
+**What the fingerprint does and does not prove.** It is one SHA-256 over every file's checksum and
+name, so it shows the copy is intact, and it lets two machines — or everyone sharing one install —
+confirm they hold the same database by comparing a single line. It is **not** a check against a
+checksum published by geNomad: refmasker only ever sees what arrived. If you need that, download
+the archive yourself from the Zenodo record linked in the geNomad documentation, compare its MD5
+with the one Zenodo lists, then extract it.
+
+#### Sharing one copy on a cluster
+
+Download it once into a group location and make it read-only, so everyone uses the same copy and
+nobody can change it:
+
+```bash
+refmasker download-db /shared/dbs
+chmod -R a-w /shared/dbs/genomad_db
+```
+
+The manifest is stored beside the database folder rather than inside it, so `--verify` still works
+after that. During a run, refmasker warns if the database folder can be modified by any user, and
+`run_info.json` records the version from the database's `version.txt`.
+
+## Shared HPC systems
+
+What to know before running refmasker on a cluster or any machine you share with other users:
 
 - Run it inside a job, not on a login node. refmasker uses 1 thread unless told otherwise, or the
   job's allocation from SLURM (`SLURM_CPUS_PER_TASK`, else `SLURM_CPUS_ON_NODE`), SGE (`NSLOTS`) or
@@ -84,77 +157,6 @@ runs.
   write its cache; set `export MPLCONFIGDIR="$TMPDIR/mpl"` in the job script.
 - The geNomad database is downloaded once and is meant to be shared: put one read-only copy in a
   group location rather than one per user. See [The geNomad database](#the-genomad-database).
-
-The conda environment targets Linux (x86-64). ISEScan and geNomad may not have macOS ARM builds;
-run refmasker on your Linux server.
-
-## The geNomad database
-
-The default prophage caller, geNomad, needs a database of about **1.4 GB**. You download it
-**once** and every later run reads it; it is not downloaded per run. Nothing else in refmasker
-needs it, so you can skip this section if you mask with `--categories repeats,is,rrna`, or call
-prophages with `--phage-tool phispy` (which needs a GenBank `--annotation`) instead.
-
-```bash
-refmasker download-db /path/to/dbs                      # downloads into /path/to/dbs/genomad_db
-export REFMASKER_GENOMAD_DB=/path/to/dbs/genomad_db     # add this line to ~/.bashrc
-refmasker check                                         # confirms refmasker finds it
-```
-
-### What the download command does
-
-Before it starts, it prints where the database will go, how much will be downloaded, how much
-space is free, and which geNomad it found. Then it hands over to geNomad's own downloader,
-`genomad download-database` — geNomad's command, not a URL built into refmasker, so the database
-always matches the installed geNomad version. geNomad's output appears in your terminal as it
-happens, between two rules, including the URL it fetches from (the archive geNomad publishes on
-Zenodo) and its own download progress.
-
-When the download finishes, refmasker reads the whole database back and records a SHA-256 for
-every file (with a progress bar) in a manifest written next to the database folder:
-
-```
-  Database version   1.9
-  Files              23 (1.4 GB)
-  Fingerprint        35c190ee6273feddd7d7d1985defac5403a9eee49570d08b4e47594b188f0828
-  Manifest           /path/to/dbs/genomad_db.sha256sums
-```
-
-refmasker never overwrites an existing `genomad_db` folder, because other people may be using it:
-download into a different folder, or remove the old one yourself first.
-
-### Checking a database later
-
-```bash
-refmasker download-db /path/to/dbs --verify
-```
-
-This downloads nothing. It re-reads every file, compares it with the manifest, lists anything
-changed, missing or newly appeared, and exits 2 if the database no longer matches. `refmasker
-check` shows the recorded fingerprint without re-reading the files. The manifest is an ordinary
-`sha256sum` file, so `cd /path/to/dbs/genomad_db && sha256sum -c ../genomad_db.sha256sums` works
-as well.
-
-**What the fingerprint does and does not prove.** It is one SHA-256 over every file's checksum and
-name, so it shows the copy is intact, and it lets two machines — or everyone sharing one install —
-confirm they hold the same database by comparing a single line. It is **not** a check against a
-checksum published by geNomad: refmasker only ever sees what arrived. If you need that, download
-the archive yourself from the Zenodo record linked in the geNomad documentation, compare its MD5
-with the one Zenodo lists, then extract it.
-
-### Sharing one copy on a cluster
-
-Download it once into a group location and make it read-only, so everyone uses the same copy and
-nobody can change it:
-
-```bash
-refmasker download-db /shared/dbs
-chmod -R a-w /shared/dbs/genomad_db
-```
-
-The manifest is stored beside the database folder rather than inside it, so `--verify` still works
-after that. During a run, refmasker warns if the database folder can be modified by any user, and
-`run_info.json` records the version from the database's `version.txt`.
 
 ## Quickstart
 
