@@ -58,7 +58,8 @@ carry SNPs that don't reflect the isolates' shared ancestry.
 **How:** [geNomad](https://github.com/apcamargo/genomad) `end-to-end` by default, using its
 `*_virus_summary.tsv`. Proviruses are masked at geNomad's coordinates. A whole record that geNomad
 calls viral is masked entirely. geNomad needs its database: `--genomad-db DIR` or
-`REFMASKER_GENOMAD_DB`.
+`REFMASKER_GENOMAD_DB`. Download it once with `refmasker download-db DIR`; see
+[the README](../README.md#the-genomad-database) for what that does and how to verify it.
 
 `--phage-tool phispy` uses [PhiSpy](https://github.com/linsalrob/PhiSpy) instead. PhiSpy works
 from an annotated GenBank file, so it needs `--annotation file.gbk`, and its sequence IDs must

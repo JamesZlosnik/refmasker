@@ -29,6 +29,14 @@ Security and HPC hardening:
 - `run_info.json` and `refmasker.log` record each tool's full path; refmasker warns if a tool or
   the geNomad database can be modified by any user.
 - CI installs dependencies from `.github/constraints.txt`, matching `environment.yml`.
+- `refmasker download-db` now says what it is about to do (destination, download size, free
+  space, which geNomad it found) and shows geNomad's downloader output live instead of hiding it
+  in a log file, so the source URL and its progress are visible. Afterwards it records a SHA-256
+  for every file of the database in a `sha256sum`-format manifest beside the folder, with a
+  single fingerprint over the whole set, and prints it. It refuses to overwrite an existing
+  database.
+- New `refmasker download-db DIR --verify` re-checksums a database against that manifest and
+  reports anything changed, missing or added; `refmasker check` shows the recorded fingerprint.
 
 - `refmasker run`: BED mask for snippy from a reference FASTA, with optional GFF3/GenBank annotation.
 - Default categories: repeats (nucmer self-alignment), IS elements (ISEScan + annotation),

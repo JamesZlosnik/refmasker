@@ -64,8 +64,9 @@ Key points:
 |---|---|---|
 | `refmasker run REF -o DIR` | Builds the mask and reports (section 2) | `cli.cmd_run` -> `pipeline.run` |
 | `refmasker compare A.bed B.bed` | Compares two masks: bp in both, Jaccard index, regions only in one | `cli.cmd_compare` -> `compare.py` |
-| `refmasker check` | Lists each external tool, its version, and the geNomad database | `cli.cmd_check` |
-| `refmasker download-db DIR` | Runs `genomad download-database DIR` | `cli.cmd_download_db` |
+| `refmasker check` | Lists each external tool, its version, and the geNomad database with the fingerprint recorded for it | `cli.cmd_check` |
+| `refmasker download-db DIR` | Explains what it is about to do, runs `genomad download-database DIR` with geNomad's own output shown live, then SHA-256s every file of the database and writes `genomad_db.sha256sums` beside it | `cli.cmd_download_db` -> `database.py` |
+| `refmasker download-db DIR --verify` | Re-checksums a downloaded database and reports files that changed, went missing or appeared (exit code 2 if it no longer matches) | `cli._verify_db` -> `database.verify` |
 
 Exit codes: 0 success, 1 `check` found missing tools (or no command given), 2 an error such as
 bad input, a missing tool or a refused output folder.
@@ -92,7 +93,7 @@ bad input, a missing tool or a refused output folder.
 |---|---|
 | `__init__.py` | Holds the version number (`__version__`). |
 | `__main__.py` | Lets you run `python -m refmasker`; calls `cli.main`. |
-| `cli.py` | Builds the command-line parser (all options and their help text), sets up logging, and dispatches to `run`, `compare`, `check` or `download-db`. Converts expected errors into a logged message and exit code 2 instead of a traceback. Also sets the default `--repeat-min-len` from `--read-length` (the larger of 200 bp and the read length). |
+| `cli.py` | Builds the command-line parser (all options and their help text), sets up logging, and dispatches to `run`, `compare`, `check` or `download-db`, and prints what those last three report. Converts expected errors into a logged message and exit code 2 instead of a traceback. Also sets the default `--repeat-min-len` from `--read-length` (the larger of 200 bp and the read length). |
 
 ### The workflow and its inputs
 
@@ -102,7 +103,8 @@ bad input, a missing tool or a refused output folder.
 | `seqio.py` | Reads FASTA (plain or gzipped) and checks it: no empty or duplicate IDs, no empty records. Writes the normalised FASTA used by the tools. `checksums` computes MD5 and SHA-256 of the reference in one pass. |
 | `annotation.py` | Reads GFF3 (NCBI/PGAP, Prokka, Bakta, Ensembl) or GenBank (via Biopython) into `Feature` records. Works out gene names through GFF parent links, flags mobile elements (feature types such as `mobile_genetic_element`, or CDS products mentioning transposase/IS), and provides `FeatureIndex` for fast "which genes does this region overlap?" lookups. |
 | `resources.py` | Decides the thread count without hogging a shared machine: an explicit `--threads` wins, then `SLURM_CPUS_PER_TASK`, `NSLOTS` or `PBS_NUM_PPN`, otherwise 1. Also caps OpenMP/BLAS thread pools to the same number. |
-| `external.py` | Runs external tools. Commands are always argument lists (never through a shell). Each tool's stderr goes to `work/<tool>/<tool>.log`; on failure the last 20 lines are shown. Also finds missing tools and reads tool versions. |
+| `database.py` | The geNomad database: runs geNomad's downloader (`database.download`), checksums every file of the downloaded database and writes a `sha256sum`-format manifest beside the folder, and verifies a database against that manifest later. `fingerprint` reduces the whole set of checksums to one SHA-256, so two installs can be compared with a single line. The progress bar used while reading 1.4 GB lives here too. |
+| `external.py` | Runs external tools. Commands are always argument lists (never through a shell). Each tool's stderr goes to `work/<tool>/<tool>.log`; on failure the last 20 lines are shown. `run_attached` instead lets a tool write straight to the terminal, so the geNomad database download shows its own progress. Also finds missing tools and reads tool versions. |
 
 ### Regions and numbers
 

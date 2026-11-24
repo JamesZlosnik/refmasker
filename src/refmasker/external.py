@@ -8,6 +8,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -77,6 +78,29 @@ def tool_version(tool: str) -> str:
         if m:
             return m.group(0)
     return "unknown"
+
+
+def run_attached(cmd: list[str], cwd: Path | None = None) -> None:
+    """Run a command with its output going straight to this terminal, and wait for it.
+
+    Unlike `run`, nothing is captured or redirected: the child inherits stdout and stderr, so
+    a tool that draws a progress bar or prints the URL it is fetching shows that to the user
+    as it happens. Used for the long, interactive geNomad database download, where a silent
+    command looks like a hang. Nothing is logged to a file, so the output lives only in the
+    terminal (or the job's output file).
+    """
+    # Flush first: our own stdout may be block-buffered (a job log), and anything still in
+    # the buffer would otherwise appear after this log line and after the child's output.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    log.info("Running: %s", " ".join(str(c) for c in cmd))
+    sys.stderr.flush()
+    try:
+        p = subprocess.run(cmd, cwd=cwd)
+    except OSError as exc:
+        raise ToolError(f"Could not run {cmd[0]}: {exc}") from exc
+    if p.returncode != 0:
+        raise ToolError(f"{cmd[0]} failed with exit code {p.returncode}; its output is above.")
 
 
 def run(
