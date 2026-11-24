@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import shutil
 import sys
 import time
@@ -26,6 +27,7 @@ examples:
   refmasker run ref.fna -o ref_mask --categories default,crispr,lowcomplexity
   refmasker run ref.fna -o ref_mask --read-length 300 --formats html
   refmasker compare ref_mask/mask.bed published_mask.bed
+  refmasker compare ref_mask/mask.bed published_mask.bed --ref ref.fna
   refmasker check
   refmasker download-db /path/to/dbs            (the geNomad database, once)
   refmasker download-db /path/to/dbs --verify   (re-check its checksums)
@@ -191,8 +193,9 @@ def build_parser() -> argparse.ArgumentParser:
     # ---- refmasker compare ----
     c = sub.add_parser(
         "compare",
-        help="compare two BED masks",
-        description="Compare two BED masks: bp in common, Jaccard index, regions unique to each.",
+        help="compare two BED masks, with an HTML report",
+        description="Compare two BED masks: bp in common, Jaccard index, regions unique to "
+        "each. Prints a summary and writes an HTML report of the comparison.",
     )
     c.add_argument("a", help="first BED (e.g. refmasker's mask.bed)")
     c.add_argument("b", help="second BED (e.g. a published mask)")
@@ -203,7 +206,22 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="OLD=NEW",
         help="rename a sequence in both files before comparing; can be repeated",
     )
-    c.add_argument("--out-prefix", help="write PREFIX.only_a.bed and PREFIX.only_b.bed")
+    c.add_argument(
+        "--ref",
+        help="reference FASTA the two masks were built for. Optional: it supplies the sequence "
+        "lengths, which add the percentages of the genome and draw the figures to the true "
+        "length of each sequence instead of to the last masked base",
+    )
+    c.add_argument(
+        "--formats",
+        default="html",
+        help="comparison report formats: html, png (figures beside the report), or 'none'",
+    )
+    c.add_argument(
+        "--out-prefix",
+        help="write PREFIX.compare.html, PREFIX.only_a.bed and PREFIX.only_b.bed instead of "
+        "naming the report after the two input files",
+    )
 
     # ---- refmasker download-db ----
     d = sub.add_parser(
@@ -255,11 +273,44 @@ def cmd_run(args) -> int:
     return 0
 
 
+def _slug(name: str, limit: int = 40) -> str:
+    """Turn a file name into a fragment safe to build an output file name from."""
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._-")
+    return cleaned[:limit] or "mask"
+
+
+def compare_output_base(a: str, b: str, out_prefix: str | None) -> Path:
+    """Where the comparison report goes, without its extension.
+
+    With --out-prefix it is PREFIX.compare, next to the other PREFIX files. Otherwise the
+    report is named after the two inputs, in the current folder. Two masks often share a file
+    name (both called mask.bed), so when the names match the parent folder is included to
+    tell the two reports apart.
+    """
+    if out_prefix:
+        return Path(f"{out_prefix}.compare")
+    pa, pb = Path(a), Path(b)
+    name_a, name_b = _slug(pa.stem), _slug(pb.stem)
+    if name_a == name_b:
+        name_a = _slug(f"{pa.parent.name}_{pa.stem}")
+        name_b = _slug(f"{pb.parent.name}_{pb.stem}")
+    return Path(f"compare_{name_a}_vs_{name_b}")
+
+
 def cmd_compare(args) -> int:
-    """`refmasker compare`: print overlap statistics for two BED masks."""
+    """`refmasker compare`: print overlap statistics for two BED masks and write a report."""
+    from datetime import UTC, datetime
+
     from refmasker.compare import compare_files, format_report
     from refmasker.regions import write_mask_bed
+    from refmasker.report import parse_formats
 
+    formats = parse_formats(args.formats)
+    if "pdf" in formats:
+        raise ValueError(
+            "compare writes an HTML report with inlined figures, not a PDF. "
+            "Use --formats html (or html,png)."
+        )
     # Turn the repeated --rename OLD=NEW options into a dict.
     rename = {}
     for item in args.rename:
@@ -267,12 +318,35 @@ def cmd_compare(args) -> int:
             raise ValueError(f"--rename expects OLD=NEW, got '{item}'")
         old, new = item.split("=", 1)
         rename[old] = new
-    c = compare_files(Path(args.a), Path(args.b), rename)
+    ref = Path(args.ref) if args.ref else None
+    c = compare_files(Path(args.a), Path(args.b), rename, ref)
     print(format_report(c, Path(args.a).name, Path(args.b).name))
+    # Mismatched sequence names are the usual reason a comparison looks wrong, so they go to
+    # the terminal as well as into the report.
+    for w in c.warnings:
+        log.warning(w)
     # Optionally save the regions found in only one of the two masks.
     if args.out_prefix:
-        write_mask_bed(f"{args.out_prefix}.only_a.bed", c.only_a)
-        write_mask_bed(f"{args.out_prefix}.only_b.bed", c.only_b)
+        for suffix, regions in (("only_a", c.only_a), ("only_b", c.only_b)):
+            path = f"{args.out_prefix}.{suffix}.bed"
+            write_mask_bed(path, regions)
+            print(f"Wrote {path}")
+    if formats:
+        from refmasker.report.compare_html import write_compare_html
+
+        base = compare_output_base(args.a, args.b, args.out_prefix)
+        path = Path(f"{base}.html")
+        meta = {
+            "name_a": Path(args.a).name,
+            "name_b": Path(args.b).name,
+            "path_a": args.a,
+            "path_b": args.b,
+            "ref": args.ref,
+            "rename": ", ".join(f"{k}={v}" for k, v in rename.items()),
+            "written": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        }
+        write_compare_html(c, path, meta, formats)
+        print(f"Wrote {path}")
     return 0
 
 

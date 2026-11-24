@@ -63,7 +63,7 @@ Key points:
 | Command | What it does | Code |
 |---|---|---|
 | `refmasker run REF -o DIR` | Builds the mask and reports (section 2) | `cli.cmd_run` -> `pipeline.run` |
-| `refmasker compare A.bed B.bed` | Compares two masks: bp in both, Jaccard index, regions only in one | `cli.cmd_compare` -> `compare.py` |
+| `refmasker compare A.bed B.bed` | Compares two masks: bp in both, Jaccard index, regions only in one, per-sequence breakdown. Prints a summary and writes a self-contained HTML report with two figures | `cli.cmd_compare` -> `compare.py`, `report/compare_html.py` |
 | `refmasker check` | Lists each external tool, its version, and the geNomad database with the fingerprint recorded for it | `cli.cmd_check` |
 | `refmasker download-db DIR` | Explains what it is about to do, runs `genomad download-database DIR` with geNomad's own output shown live, then SHA-256s every file of the database and writes `genomad_db.sha256sums` beside it | `cli.cmd_download_db` -> `database.py` |
 | `refmasker download-db DIR --verify` | Re-checksums a downloaded database and reports files that changed, went missing or appeared (exit code 2 if it no longer matches) | `cli._verify_db` -> `database.verify` |
@@ -110,9 +110,9 @@ bad input, a missing tool or a refused output folder.
 
 | File | What it does |
 |---|---|
-| `regions.py` | The `Region` record (sequence, start, end, category, source tool, name, genes overlapped) and the interval maths: `merge`, `pad_and_clip`, `union_bp`, `intersect_bp`. Reads BED (`--extra-bed`, `compare`) and writes `mask.bed` (3 columns, no header, as snippy needs) and `mask.annotated.bed`. |
+| `regions.py` | The `Region` record (sequence, start, end, category, source tool, name, genes overlapped) and the interval maths: `merge`, `pad_and_clip`, `union_bp`, and a two-pointer sweep (`overlaps`) shared by `intersect_bp`, `intersect` and `subtract`. Reads BED (`--extra-bed`, `compare`) and writes `mask.bed` (3 columns, no header, as snippy needs) and `mask.annotated.bed`. |
 | `summary.py` | Builds `summary.tsv`: regions, bp and % masked per category and per record, plus an overlap-aware total. Also the repeat sensitivity grid: how much would be masked at minimum lengths 100 to 500 bp and identities 80 to 95%. |
-| `compare.py` | `refmasker compare`: merges each BED, then reports bp in each, bp in both, fraction of one covered by the other, Jaccard index, and the regions found in only one file (optionally written as BED files). `--rename` fixes sequence-name mismatches between files. |
+| `compare.py` | `refmasker compare`: merges each BED, then reports bp in each, bp in both, fraction of one covered by the other, Jaccard index, a row per sequence, and the regions found in only one file (optionally written as BED files). Keeps the per-base difference (`diff_a`/`diff_b`) apart from whole regions the other mask never touches (`only_a`/`only_b`). `--rename` fixes sequence-name mismatches; `--ref` adds the record lengths, which the BEDs do not carry, for percentages and a true-to-scale figure. Warns when the two masks share no sequence names, or when regions run past the end of the reference. |
 
 ### Detectors (`src/refmasker/detectors/`)
 
@@ -141,7 +141,8 @@ unit-tested on captured output without the tool installed.
 | File | What it does |
 |---|---|
 | `__init__.py` | Parses `--formats` and calls the writers below in order. |
-| `plots.py` | Linear and circular genome figures with matplotlib (one track per category, plus the merged mask), using the Okabe-Ito colour-blind-safe palette. Saved as PNG and SVG under `figures/`. |
+| `plots.py` | Linear and circular genome figures with matplotlib (one track per category, plus the merged mask), using the Okabe-Ito colour-blind-safe palette. Saved as PNG and SVG under `figures/`. Also the two `compare` figures (a shared-against-unique bar, and a track per mask along each sequence), which are rendered to a string and inlined rather than written to disk. |
+| `compare_html.py` | The `refmasker compare` report: tiles, the two comparison figures inlined as SVG, a per-sequence table and sortable tables of the regions each mask has that the other misses. Reuses the page styles and table sorter from `html.py`. |
 | `html.py` | A self-contained `report.html` (figures inlined as SVG, works offline): summary tiles, warnings, figures, tables, the sensitivity grid, a sortable and searchable table of every region, how to use the mask with snippy, and run details. All text from inputs is HTML-escaped. |
 | `pdf.py` | `report.pdf` with the same content, drawn with matplotlib. |
 | `text.py` | Plain-language explanations of why each category is masked, and the snippy usage text, shared by both reports. |

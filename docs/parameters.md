@@ -47,6 +47,18 @@ slowest step: 12 minutes for a 5.2 Mb *B. fragilis* genome on 2 threads, and 7 m
 on 4. nucmer, barrnap, dustmasker and MinCED each take seconds. geNomad's run time is not yet
 measured (see [validation.md](validation.md)).
 
+## `refmasker compare`
+
+`refmasker compare A.bed B.bed [options]` compares two masks and writes an HTML report. See
+[outputs.md](outputs.md#the-comparison-report-refmasker-compare) for what the report contains.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--ref FASTA` | none | The reference the two masks were built for. Supplies the sequence lengths, which add percentages of the genome and draw the figures to the true length of each sequence instead of to the last masked base |
+| `--rename OLD=NEW` | none | Rename a sequence in both files before comparing, for masks that name the same chromosome differently. Can be repeated |
+| `--out-prefix P` | none | Write `P.compare.html`, `P.only_a.bed` and `P.only_b.bed`. Without it the report is named `compare_<A>_vs_<B>.html` in the current folder, and no BED files are written |
+| `--formats` | `html` | `html`, `html,png` (also save the figures as PNG) or `none` (terminal summary only) |
+
 ## Exit codes
 
 | Code | Meaning |

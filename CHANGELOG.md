@@ -46,4 +46,11 @@ Security and HPC hardening:
 - Repeat length threshold follows `--read-length`.
 - Reports: HTML, PDF, PNG/SVG figures (linear and circular), `summary.tsv`, `run_info.json`.
 - `refmasker compare`, `refmasker check`, `refmasker download-db`.
+- `refmasker compare` writes a self-contained HTML report by default: headline numbers, a bar of
+  shared against unique bases, a track per mask along each sequence, a per-sequence table, and
+  sortable tables of the regions each mask has that the other misses entirely. Named after the
+  two inputs, or after `--out-prefix`; `--formats none` turns it off and `--formats html,png`
+  also saves the figures. New `--ref` supplies the sequence lengths the BEDs do not carry, for
+  percentages of the genome and a true-to-scale figure. The comparison also reports per-sequence
+  numbers and warns when the two masks share no sequence names.
 - Thread use defaults to 1, or the SLURM/SGE allocation.
