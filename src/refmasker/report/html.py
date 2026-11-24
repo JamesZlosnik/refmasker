@@ -6,7 +6,7 @@ import re
 from html import escape
 from pathlib import Path
 
-from refmasker.report.plots import colour
+from refmasker.report.palette import colour
 from refmasker.report.text import SNIPPY_USAGE, WHY, fmt_bp
 from refmasker.safeio import open_replacing
 

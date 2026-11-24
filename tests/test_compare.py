@@ -1,5 +1,6 @@
 """`refmasker compare`: the comparison maths, its warnings, and the HTML report."""
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -301,3 +302,23 @@ def test_cli_rejects_a_plain_bed_as_annotated(annotated_masks, tmp_path, monkeyp
     monkeypatch.chdir(tmp_path)
     mask, published = annotated_masks
     assert main(["compare", str(mask), str(published), "--annotated-a", str(published)]) == 2
+
+
+def test_the_report_survives_a_missing_matplotlib(masks, tmp_path, monkeypatch):
+    """A missing or broken matplotlib costs the figures, not the report.
+
+    Reports used to fail with an ImportError traceback halfway through, after the terminal
+    summary had already been printed.
+    """
+    monkeypatch.chdir(tmp_path)
+    # Block the import the way a broken install does, and drop the already-imported module
+    # so the report has to import it again.
+    monkeypatch.setitem(sys.modules, "matplotlib", None)
+    monkeypatch.delitem(sys.modules, "refmasker.report.plots", raising=False)
+    assert main(["compare", str(masks[0]), str(masks[1])]) == 0
+    text = (tmp_path / "compare_a_vs_published.html").read_text()
+    assert "matplotlib could not be imported" in text
+    assert "<svg" not in text
+    # Everything that is not a figure is still there.
+    assert "By sequence" in text and "Regions in A that B misses entirely" in text
+    assert "4,500" in text  # bp masked by A

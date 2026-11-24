@@ -9,16 +9,7 @@ from pathlib import Path
 from refmasker import __version__
 from refmasker.detectors import categories
 from refmasker.report.html import CSS, JS, strip_svg_header
-from refmasker.report.plots import (
-    COMPARE_COLOURS,
-    close,
-    colour,
-    compare_bar_figure,
-    compare_category_figure,
-    compare_tracks_figure,
-    save_png,
-    svg_string,
-)
+from refmasker.report.palette import COMPARE_COLOURS, colour
 from refmasker.report.text import fmt_bp
 from refmasker.safeio import open_replacing
 
@@ -53,6 +44,35 @@ DIFFERENCE_NOTE = (
     "with the other mask, which is what you want when asking “what would I lose by "
     "switching?”"
 )
+
+
+def _draw_figures(c, name_a: str, name_b: str, labels: dict[str, str]):
+    """Build the figures, or return nothing if matplotlib is unavailable.
+
+    Everything else on this page is plain HTML, so a missing or broken matplotlib costs the
+    reader the figures and nothing more. It is imported here rather than at module scope so
+    that is true: the tables, the numbers and the region lists still get written.
+    """
+    try:
+        from refmasker.report.plots import (
+            compare_bar_figure,
+            compare_category_figure,
+            compare_tracks_figure,
+        )
+    except ImportError as exc:  # matplotlib missing, or broken (e.g. a half-installed Pillow)
+        log.warning(
+            "Figures left out of the report: matplotlib could not be imported (%s). The "
+            "tables and numbers are unaffected.",
+            exc,
+        )
+        return None, str(exc)
+    figures = {
+        "bar": compare_bar_figure(c, name_a, name_b),
+        "tracks": compare_tracks_figure(c, name_a, name_b),
+    }
+    if c.categories_a or c.categories_b:
+        figures["categories"] = compare_category_figure(c, name_a, name_b, labels)
+    return figures, ""
 
 
 def _swatch(key: str) -> str:
@@ -216,22 +236,21 @@ def write_compare_html(c, path: Path, meta: dict, formats: set[str]) -> None:
     # PNGs were asked for. An empty pair of masks has nothing to draw.
     labels = {cat.name: cat.label for cat in categories().values()}
     svgs: dict[str, str] = {}
+    no_figures = ""
     if c.bp_a or c.bp_b:
-        figures = {
-            "bar": compare_bar_figure(c, name_a, name_b),
-            "tracks": compare_tracks_figure(c, name_a, name_b),
-        }
-        if c.categories_a or c.categories_b:
-            figures["categories"] = compare_category_figure(c, name_a, name_b, labels)
-        try:
-            svgs = {kind: svg_string(fig) for kind, fig in figures.items()}
-            if "png" in formats:
-                # PNG only: the page inlines the SVG from memory, so no SVG file is needed.
-                for kind, fig in figures.items():
-                    log.info("Wrote %s", save_png(fig, f"{path.with_suffix('')}.{kind}.png"))
-        finally:
-            for fig in figures.values():
-                close(fig)
+        figures, no_figures = _draw_figures(c, name_a, name_b, labels)
+        if figures:
+            from refmasker.report.plots import close, save_png, svg_string
+
+            try:
+                svgs = {kind: svg_string(fig) for kind, fig in figures.items()}
+                if "png" in formats:
+                    # PNG only: the page inlines the SVG from memory, so no SVG file needed.
+                    for kind, fig in figures.items():
+                        log.info("Wrote %s", save_png(fig, f"{path.with_suffix('')}.{kind}.png"))
+            finally:
+                for fig in figures.values():
+                    close(fig)
 
     parts: list[str] = []
     add = parts.append
@@ -297,6 +316,13 @@ def write_compare_html(c, path: Path, meta: dict, formats: set[str]) -> None:
                 "come from the same palette as that green.</p>"
             )
             add(f"<div class='figure'>{strip_svg_header(svgs['categories'])}</div>")
+    elif no_figures:
+        add("<h2>Figures</h2>")
+        add(
+            "<div class='warn'><strong>No figures.</strong> matplotlib could not be imported, "
+            f"so this report has its tables but not its plots. The error was: <code>"
+            f"{e(no_figures)}</code>. Everything else on this page is unaffected.</div>"
+        )
     else:
         add("<h2>Figures</h2><p>Both masks are empty, so there is nothing to draw.</p>")
 
