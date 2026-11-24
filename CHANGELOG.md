@@ -46,6 +46,13 @@ Security and HPC hardening:
 - Repeat length threshold follows `--read-length`.
 - Reports: HTML, PDF, PNG/SVG figures (linear and circular), `summary.tsv`, `run_info.json`.
 - `refmasker compare`, `refmasker check`, `refmasker download-db`.
+- New `environment-notools.yml` creates an environment, also called `refmasker`, with the Python
+  dependencies and none of the bioconda tools, for machines that cannot run them (macOS has no
+  ISEScan or geNomad build) or need not: comparing masks and reading reports works there.
+- `refmasker compare` no longer fails with an ImportError traceback when matplotlib is missing
+  or broken: it writes the report without the figures, keeps every table, and says why on the
+  page and in the log. The colour palette moved to `report/palette.py` so the HTML needs
+  nothing from the plotting stack.
 - `refmasker compare` writes a self-contained HTML report by default: headline numbers, a bar of
   shared against unique bases, a track per mask along each sequence, a per-sequence table, and
   sortable tables of the regions each mask has that the other misses entirely. Named after the

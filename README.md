@@ -121,8 +121,25 @@ has already installed the dependencies). Avoid editable installs (`pip install -
 environments: anyone who can edit the checkout would change the code every user of the environment
 runs.
 
-The conda environment targets Linux (x86-64). ISEScan and geNomad may not have macOS ARM builds;
-run refmasker on your Linux server.
+### macOS, or any machine that only reads masks
+
+`environment.yml` targets Linux (x86-64): ISEScan and geNomad have no macOS ARM build, so it
+will not solve on a Mac. Building masks therefore stays on your Linux server. Everything else —
+`refmasker compare`, `refmasker check`, and the reports — is pure Python and runs anywhere, so
+there is a second file for it:
+
+```bash
+conda env create -f environment-notools.yml   # also creates an env called refmasker
+conda activate refmasker
+pip install --no-deps .
+```
+
+Same environment name as the full one, so the same commands work and you never need to
+remember which env you are in. `refmasker run` will refuse there, naming the tools it cannot
+find.
+
+If matplotlib is missing or broken in whatever environment you use, `refmasker compare` still
+writes its report: you lose the figures and keep every table, and the page says why.
 
 ### The geNomad database
 

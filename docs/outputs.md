@@ -123,6 +123,12 @@ one mask* is a per-base difference (a region the other mask half covers counts h
 `--out-prefix` additionally writes `PREFIX.only_a.bed` and `PREFIX.only_b.bed`, the merged
 regions each mask has that the other does not touch.
 
+### Without matplotlib
+
+The figures need matplotlib; the rest of the page does not. If it is missing or broken, the
+report is still written, with every table and number, and a note at the top saying the figures
+were left out and why. `refmasker run` needs it for `report.pdf` and the figures.
+
 ### Where the categories come from
 
 `mask.bed` has three columns and no categories. They live in `mask.annotated.bed`, so the

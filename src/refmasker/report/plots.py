@@ -13,6 +13,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
+from refmasker.report.palette import (  # noqa: E402
+    CATEGORY_SHARED_COLOUR,
+    COLOURS,
+    COMPARE_COLOURS,
+    colour,
+)
 from refmasker.safeio import open_replacing  # noqa: E402
 
 # svg.fonttype "none" keeps text as real text in SVGs (searchable, smaller files).
@@ -28,26 +34,7 @@ plt.rcParams.update(
     }
 )
 
-# Okabe-Ito colour-blind-safe palette.
-COLOURS = {
-    "repeats": "#0072B2",
-    "is": "#D55E00",
-    "prophage": "#009E73",
-    "rrna": "#CC79A7",
-    "lowcomplexity": "#E69F00",
-    "crispr": "#56B4E9",
-    "genes": "#B07AA1",
-    "plasmid": "#8C8C3A",
-    "user": "#6B6B6B",
-    "all": "#222222",
-}
-
 MAX_PANELS = 6  # records drawn separately; beyond this, contigs are concatenated
-
-
-def colour(cat: str) -> str:
-    """Colour of a category (grey for unknown ones)."""
-    return COLOURS.get(cat, "#999999")
 
 
 def _scale(length: int) -> tuple[float, str]:
@@ -218,17 +205,6 @@ def _nice_step(span: float) -> float:
         if raw <= m * mag:
             return m * mag
     return 10 * mag
-
-
-# Colours for the comparison figures: the two masks and the bases they agree on. From the
-# same Okabe-Ito palette as the category colours above.
-COMPARE_COLOURS = {"both": "#009E73", "only_a": "#0072B2", "only_b": "#D55E00"}
-
-# The per-category figure cannot use the green above for "shared": the category colours are
-# from the same palette, and prophage *is* that green, so a fully shared bar and an all-
-# prophage bar would look identical. Shared is neutral grey there, category colour is the
-# difference.
-CATEGORY_SHARED_COLOUR = "#C9CCD1"
 
 
 def _compare_layout(rows):
