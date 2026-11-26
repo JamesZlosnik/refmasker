@@ -4,8 +4,12 @@
 #   conda activate refmasker
 #   pip install --no-deps .                  # from a refmasker checkout or release
 #
-# Versions are pinned for reproducibility. They were checked to solve together on linux-64
-# (glibc 2.28, as on RHEL/Rocky 8) with strict channel priority on 2026-11-19.
+# Every tool here has a build for both linux-64 and osx-arm64 (Apple silicon), so one
+# environment runs the whole of refmasker on either: `run`, `compare`, `check` and the reports.
+#
+# Versions are pinned for reproducibility. They were checked to solve together with strict
+# channel priority on linux-64 (glibc 2.28, as on RHEL/Rocky 8) on 2026-11-19 and on
+# osx-arm64 on 2026-11-26.
 # To update: change a pin, re-solve, run `pytest` and `pytest -m slow`, note it in CHANGELOG.
 name: refmasker
 channels:
