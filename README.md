@@ -121,22 +121,17 @@ has already installed the dependencies). Avoid editable installs (`pip install -
 environments: anyone who can edit the checkout would change the code every user of the environment
 runs.
 
-### macOS, or any machine that only reads masks
+### macOS (Apple silicon)
 
-`environment.yml` targets Linux (x86-64): ISEScan and geNomad have no macOS ARM build, so it
-will not solve on a Mac. Building masks therefore stays on your Linux server. Everything else —
-`refmasker compare`, `refmasker check`, and the reports — is pure Python and runs anywhere, so
-there is a second file for it:
+Use the same `environment.yml` and the same commands as above. Every pinned tool has an
+`osx-arm64` build on bioconda, and the file was checked to solve there on 2026-11-26, so one
+environment gives you the whole of refmasker — `run`, `compare`, `check` and the reports — on
+Linux and on an Apple silicon Mac alike. The pins have had far more mileage on linux-64, so if a
+tool misbehaves on a Mac, `refmasker check` names what it found and please open an issue.
 
-```bash
-conda env create -f environment-notools.yml   # also creates an env called refmasker
-conda activate refmasker
-pip install --no-deps .
-```
-
-Same environment name as the full one, so the same commands work and you never need to
-remember which env you are in. `refmasker run` will refuse there, naming the tools it cannot
-find.
+The only Mac-specific note is geNomad, which runs on TensorFlow: the conda build is CPU-only, so
+prophage detection is slower than on a Linux server with more cores. `--phage-tool phispy`
+(with a GenBank `--annotation`), or a `--categories` list without `prophage`, avoids it.
 
 If matplotlib is missing or broken in whatever environment you use, `refmasker compare` still
 writes its report: you lose the figures and keep every table, and the page says why.
